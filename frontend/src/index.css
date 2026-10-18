@@ -1,0 +1,71 @@
+@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@700;800&family=Source+Sans+3:wght@400;500;600;700&display=swap');
+@import "tailwindcss";
+
+/*
+  Design tokens lifted directly from the approved CodeCanvas wireframe
+  (Design-canvas artifact) so the real app matches it exactly rather than
+  drifting into a generic admin-dashboard look:
+    - Navy sidebar (#101A33), cool-gray app background (#F5F6FA)
+    - Manrope (800) for headings, Source Sans 3 for body text
+    - Blue accent (#2A5BD7), green/amber/red status colors
+*/
+@theme {
+  --font-heading: 'Manrope', sans-serif;
+  --font-sans: 'Source Sans 3', sans-serif;
+
+  --color-ink: #1a2233;
+  --color-muted: #64748b;
+  --color-faint: #9aa3b5;
+  --color-app-bg: #f5f6fa;
+  --color-card-border: #e2e5ec;
+  --color-divider: #eef0f5;
+  --color-input-border: #d7dbe4;
+
+  --color-sidebar: #101a33;
+  --color-sidebar-border: #23305a;
+  --color-sidebar-text: #aeb6cc;
+  --color-sidebar-text-dim: #8793b3;
+  --color-sidebar-label: #6b7696;
+
+  --color-accent: #2a5bd7;
+  --color-accent-hover: #1e46ad;
+  --color-accent-soft: #eaf0fd;
+
+  --color-green: #1e8e5a;
+  --color-green-soft: #e8f6ee;
+  --color-green-border: #bce4cc;
+
+  --color-amber: #b6790a;
+  --color-amber-text: #8a6416;
+  --color-amber-soft: #fdf2e3;
+  --color-amber-soft-2: #fefaf0;
+  --color-amber-border: #f0dba3;
+  --color-amber-border-2: #e7c580;
+  --color-amber-dark: #d6a33b;
+
+  --color-red: #c23b3b;
+  --color-red-text: #a52e2e;
+  --color-red-soft: #fceaea;
+  --color-red-border: #f0b8b8;
+
+  --color-slate-pill-bg: #f1f3f8;
+  --color-slate-pill-text: #475569;
+}
+
+body {
+  margin: 0;
+  background: var(--color-app-bg);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+}
+
+#root {
+  min-height: 100vh;
+}
+
+a {
+  color: var(--color-accent);
+}
+a:hover {
+  color: var(--color-accent-hover);
+}

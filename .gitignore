@@ -1,0 +1,22 @@
+# Secrets / local env
+.env
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Local SQLite dev database
+backend/data/*.db
+backend/data/*.db-journal
+
+# Node / frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+npm-debug.log*
+
+# Editor / OS
+.DS_Store
+*.swp

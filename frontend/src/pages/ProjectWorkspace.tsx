@@ -118,7 +118,7 @@ export default function ProjectWorkspace() {
               <tr key={obj.id} className="border-b border-divider last:border-0 hover:bg-app-bg/60">
                 <td className="px-4 py-3 font-medium">
                   <Link
-                    to={`/projects/${project.id}/objects/${obj.id}/fsd/intake`}
+                    to={`/projects/${project.id}/objects/${obj.id}/fsd/${obj.latest_fsd_version ? 'review' : 'intake'}`}
                     className="font-semibold text-ink no-underline hover:text-accent"
                   >
                     {obj.name}

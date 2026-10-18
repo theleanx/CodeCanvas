@@ -63,9 +63,22 @@ body {
   min-height: 100vh;
 }
 
-a {
-  color: var(--color-accent);
-}
-a:hover {
-  color: var(--color-accent-hover);
+/*
+  Plain-link default color, for inline prose links (breadcrumbs etc.) that
+  don't set their own color utility. This MUST live in @layer base --
+  Tailwind v4 puts its own utilities (text-white, text-accent, ...) in
+  later layers, and an unlayered rule like a bare `a { color }` always
+  wins over ANY layered rule regardless of specificity. Left unlayered,
+  this was silently beating `text-white` on every active sidebar NavLink
+  (same blue as the background it sits on -- invisible text, not a typo
+  in the component). @layer base keeps the normal base < utilities order
+  so a component's own color class always wins, as intended.
+*/
+@layer base {
+  a {
+    color: var(--color-accent);
+  }
+  a:hover {
+    color: var(--color-accent-hover);
+  }
 }

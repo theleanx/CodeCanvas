@@ -10,10 +10,11 @@ to change.
 
 from __future__ import annotations
 
+import logging
 import os
 from pathlib import Path
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 DATA_DIR = Path(__file__).resolve().parent / "data"
@@ -47,3 +48,40 @@ def get_db():
         yield db
     finally:
         db.close()
+
+
+def run_lightweight_migrations() -> None:
+    """Base.metadata.create_all() (called right before this, in main.py's
+    startup) only creates TABLES that don't exist yet -- it never alters a
+    table that's already there. That's fine for a fresh SQLite file, but
+    Render's Postgres is a real persistent database: a column added to a
+    model here (like FsdDraft.intake_validation_json) would otherwise never
+    reach the live table, and every insert would start failing with
+    "column does not exist" the moment the new code deployed.
+
+    There's no Alembic in this project -- a single-instance demo app with a
+    handful of tables doesn't need one yet -- so this does the one thing a
+    real migration tool would otherwise be for: diff each model's declared
+    columns against what the live table actually has, and ADD COLUMN
+    whatever's missing. Additive only (never drops or alters an existing
+    column), and each column is added in its own try/except so one failure
+    can't block the others or crash startup -- worst case, that one column's
+    feature degrades until it's investigated, instead of the whole API going
+    down. Safe to run every startup, including against a brand-new database
+    where create_all() just created everything (then this is a no-op)."""
+    inspector = inspect(engine)
+    with engine.begin() as conn:
+        for table in Base.metadata.sorted_tables:
+            if not inspector.has_table(table.name):
+                continue  # create_all() just made it fresh and correct
+            existing = {col["name"] for col in inspector.get_columns(table.name)}
+            for column in table.columns:
+                if column.name in existing:
+                    continue
+                try:
+                    ddl_type = column.type.compile(dialect=engine.dialect)
+                    conn.execute(text(f"ALTER TABLE {table.name} ADD COLUMN {column.name} {ddl_type}"))
+                except Exception:
+                    logging.getLogger("codecanvas").exception(
+                        "migration: failed to add column %s.%s", table.name, column.name
+                    )

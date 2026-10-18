@@ -414,3 +414,156 @@ def build_pdf(draft: dict, obj: dict, project: dict) -> bytes:
 
     doc.build(story)
     return buf.getvalue()
+
+
+# --- Intake Validation PDF -------------------------------------------------
+# A separate report from the FSD export above -- this one is the readiness
+# assessment itself (verdict, radar, quality checks, corrections, the
+# itemized checklist), not the FSD content. Same reportlab conventions.
+
+IV_STATUS_COLOR = {
+    "pass": colors.HexColor("#1a7f37"),
+    "warn": colors.HexColor("#8a5a00"),
+    "fail": colors.HexColor("#991b1b"),
+    "cannot_verify": colors.HexColor("#555555"),
+}
+IV_STATUS_LABEL = {"pass": "Pass", "warn": "Warn", "fail": "Fail", "cannot_verify": "Cannot Verify"}
+IV_SEVERITY_LABEL = {"critical": "CRITICAL", "high": "HIGH", "medium": "MEDIUM", "low": "LOW"}
+IV_VERDICT_LABEL = {"ready": "Ready", "needs_correction": "Needs Correction", "not_ready": "Not Ready"}
+
+
+def build_intake_validation_pdf(draft: dict, obj: dict, project: dict) -> bytes:
+    iv = draft.get("intake_validation")
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buf, pagesize=LETTER, topMargin=0.75 * inch, bottomMargin=0.75 * inch, leftMargin=0.75 * inch, rightMargin=0.75 * inch
+    )
+    styles = getSampleStyleSheet()
+    h0 = ParagraphStyle("IVH0", parent=styles["Title"], spaceAfter=4)
+    h1 = ParagraphStyle("IVH1", parent=styles["Heading1"], spaceBefore=14, spaceAfter=6)
+    body = ParagraphStyle("IVBody", parent=styles["BodyText"], spaceAfter=8, leading=14)
+    meta = ParagraphStyle("IVMeta", parent=styles["BodyText"], textColor=colors.HexColor("#555555"), spaceAfter=14)
+    cell = ParagraphStyle("IVCell", parent=styles["BodyText"], fontSize=8, leading=10)
+
+    story: list[Any] = [
+        Paragraph(f"{obj['name']} — Intake Validation Assessment", h0),
+        Paragraph(
+            f"Project: {project['name']} | Object: {obj['name']} ({obj['type']}, {obj['module']}) | FSD Version: {draft['version']}",
+            meta,
+        ),
+    ]
+
+    if not iv:
+        story.append(
+            Paragraph(
+                "No Intake Validation result is available for this draft "
+                f"({draft.get('intake_validation_status', 'pending')}"
+                + (f": {draft['intake_validation_error']}" if draft.get("intake_validation_error") else "")
+                + ").",
+                body,
+            )
+        )
+        doc.build(story)
+        return buf.getvalue()
+
+    verdict_style = ParagraphStyle("IVVerdict", parent=styles["Heading2"], textColor=IV_STATUS_COLOR.get(
+        "pass" if iv["verdict"] == "ready" else ("fail" if iv["verdict"] == "not_ready" else "warn")
+    ))
+    story.append(Paragraph(f"{IV_VERDICT_LABEL.get(iv['verdict'], iv['verdict'])} · {iv['overall_pct']:.0f}%", verdict_style))
+    story.append(Paragraph(iv["assessment"], body))
+
+    story.append(Paragraph("Readiness by Dimension", h1))
+    radar_rows = [["Dimension", "Score"]] + [
+        [dim.replace("_", " ").title(), f"{score}/100"] for dim, score in iv["radar"].items()
+    ]
+    radar_table = Table(radar_rows, colWidths=[2.2 * inch, 1 * inch])
+    radar_table.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f1f3f7")),
+                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#cfd4dc")),
+                ("FONTSIZE", (0, 0), (-1, -1), 9),
+            ]
+        )
+    )
+    story.append(radar_table)
+
+    story.append(Paragraph("Quality Checks", h1))
+    qc_rows = [["Check", "Status", "Finding", "Suggestion"]]
+    for qc in iv["quality_checks"]:
+        qc_rows.append(
+            [
+                Paragraph(qc["title"], cell),
+                Paragraph(IV_STATUS_LABEL.get(qc["status"], qc["status"]), cell),
+                Paragraph(qc["finding"], cell),
+                Paragraph(qc.get("suggestion") or "—", cell),
+            ]
+        )
+    qc_table = Table(qc_rows, colWidths=[1.3 * inch, 0.7 * inch, 2.3 * inch, 2.2 * inch], repeatRows=1)
+    qc_table.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f1f3f7")),
+                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#cfd4dc")),
+                ("FONTSIZE", (0, 0), (-1, -1), 8),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ]
+        )
+    )
+    story.append(qc_table)
+
+    if iv.get("corrections"):
+        story.append(Paragraph("Corrections Required", h1))
+        for c in iv["corrections"]:
+            story.append(
+                Paragraph(
+                    f"<b>{IV_SEVERITY_LABEL.get(c['severity'], c['severity'].upper())}</b> — {c['text']}",
+                    ParagraphStyle("IVCorrection", parent=body, textColor=IV_STATUS_COLOR.get(
+                        "fail" if c["severity"] in ("critical", "high") else "warn"
+                    )),
+                )
+            )
+
+    story.append(Paragraph("Intake Checklist", h1))
+    checklist_rows = [["ID", "Category", "Severity", "Check", "Status", "Finding"]]
+    for item in iv["checklist"]:
+        checklist_rows.append(
+            [
+                item["item_id"],
+                item["category"],
+                item["severity"],
+                Paragraph(item["check"], cell),
+                IV_STATUS_LABEL.get(item["status"], item["status"]),
+                Paragraph(item["finding"], cell),
+            ]
+        )
+    checklist_table = Table(
+        checklist_rows, colWidths=[0.55 * inch, 0.75 * inch, 0.55 * inch, 1.7 * inch, 0.7 * inch, 1.95 * inch], repeatRows=1
+    )
+    checklist_table.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f1f3f7")),
+                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#cfd4dc")),
+                ("FONTSIZE", (0, 0), (-1, -1), 7.5),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ]
+        )
+    )
+    story.append(checklist_table)
+
+    story.append(Spacer(1, 12))
+    story.append(
+        Paragraph(
+            "Generated by CodeCanvas's Intake Validation agent. Checklist items marked \"Cannot Verify\" would "
+            "require a live SAP system connection this tool does not have -- they describe what's named in the "
+            "document, not whether it exists in any real system.",
+            ParagraphStyle("IVFooter", parent=styles["BodyText"], fontSize=7, textColor=colors.HexColor("#888888")),
+        )
+    )
+
+    doc.build(story)
+    return buf.getvalue()

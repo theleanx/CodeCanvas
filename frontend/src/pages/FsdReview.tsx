@@ -5,6 +5,7 @@ import { useAuth } from '../context/AuthContext'
 import {
   ApiError,
   downloadFsdExport,
+  downloadIntakeValidationPdf,
   generateFsdDraft,
   getFsdDraft,
   getLatestFsdDraft,
@@ -13,6 +14,7 @@ import {
   listFsdDrafts,
   pushFsdToGithub,
   pushFsdToGoogleDrive,
+  rerunIntakeValidation,
   setApproval,
 } from '../lib/api'
 import type { ExportFormat } from '../lib/api'
@@ -21,6 +23,9 @@ import type {
   FsdDraftOut,
   FsdDraftSummary,
   FSDSection,
+  IntakeCheckStatus,
+  IntakeChecklistItem,
+  IntakeSeverity,
   Project,
   ReviewSignoffRow,
   SourceDocumentIn,
@@ -294,6 +299,8 @@ export default function FsdReview() {
             onToggleRed={() => setRedOpen((v) => !v)}
           />
 
+          <IntakeValidationCard draft={run.draft} onUpdated={(updated) => setRun({ phase: 'done', draft: updated })} />
+
           {Object.keys(contextQueue).length > 0 && (
             <div className="sticky top-3 z-10 mb-6 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-accent bg-accent-soft px-5 py-3.5">
               <div className="text-[13px] font-semibold text-accent">
@@ -492,6 +499,292 @@ function QualityScoreCard({
       <div className="border-t border-divider pt-2.5 text-[11.5px] text-faint">
         Above 90% — pass, single approver. 80–90% — pass with condition. Below 80% — not advisable to approve; if
         approved anyway, requires one Module Lead and one Solution Architect.
+      </div>
+    </div>
+  )
+}
+
+const VERDICT_LABEL: Record<string, string> = { ready: 'Ready', needs_correction: 'Needs Correction', not_ready: 'Not Ready' }
+
+function verdictClasses(verdict: string) {
+  if (verdict === 'ready') return { text: 'text-green', pill: 'bg-green-soft text-green' }
+  if (verdict === 'not_ready') return { text: 'text-red', pill: 'bg-red-soft text-red-text' }
+  return { text: 'text-amber', pill: 'bg-amber-soft text-amber' }
+}
+
+function checkStatusClasses(status: IntakeCheckStatus) {
+  if (status === 'pass') return { border: 'border-green-border', bg: 'bg-green-soft', pill: 'bg-green text-white' }
+  if (status === 'fail') return { border: 'border-red-border', bg: 'bg-red-soft', pill: 'bg-red text-white' }
+  if (status === 'cannot_verify') return { border: 'border-input-border', bg: 'bg-app-bg/60', pill: 'bg-slate-pill-text text-white' }
+  return { border: 'border-amber-border', bg: 'bg-amber-soft-2', pill: 'bg-amber-dark text-white' }
+}
+
+const CHECK_STATUS_LABEL: Record<IntakeCheckStatus, string> = {
+  pass: 'Pass',
+  warn: 'Warn',
+  fail: 'Fail',
+  cannot_verify: 'Cannot Verify',
+}
+
+function severityPillClasses(severity: IntakeSeverity) {
+  if (severity === 'critical') return 'bg-red text-white'
+  if (severity === 'high') return 'bg-red-soft text-red-text'
+  if (severity === 'medium') return 'bg-amber-soft text-amber-text'
+  return 'bg-slate-pill-bg text-slate-pill-text'
+}
+
+function radarBarColor(score: number) {
+  if (score >= 75) return 'bg-green'
+  if (score >= 50) return 'bg-amber-dark'
+  return 'bg-red'
+}
+
+function IntakeValidationCard({ draft, onUpdated }: { draft: FsdDraftOut; onUpdated: (draft: FsdDraftOut) => void }) {
+  const [checksOpen, setChecksOpen] = useState(false)
+  const [correctionsOpen, setCorrectionsOpen] = useState(true)
+  const [checklistOpen, setChecklistOpen] = useState(false)
+  const [busy, setBusy] = useState<'rerun' | 'download' | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  async function handleRerun() {
+    setError(null)
+    setBusy('rerun')
+    try {
+      const updated = await rerunIntakeValidation(draft.id)
+      onUpdated(updated)
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Could not re-run Intake Validation.')
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  async function handleDownload() {
+    setError(null)
+    setBusy('download')
+    try {
+      await downloadIntakeValidationPdf(draft.id)
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Could not download the PDF.')
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const actions = (
+    <div className="flex flex-wrap gap-2">
+      <button
+        type="button"
+        onClick={handleRerun}
+        disabled={busy !== null}
+        className="whitespace-nowrap rounded-md border border-input-border bg-white px-3 py-1.5 text-[12px] font-semibold text-slate-pill-text disabled:opacity-50"
+      >
+        {busy === 'rerun' ? 'Running…' : 'Re-run assessment'}
+      </button>
+      {draft.intake_validation && (
+        <button
+          type="button"
+          onClick={handleDownload}
+          disabled={busy !== null}
+          className="whitespace-nowrap rounded-md border border-input-border bg-white px-3 py-1.5 text-[12px] font-semibold text-slate-pill-text disabled:opacity-50"
+        >
+          {busy === 'download' ? 'Preparing…' : 'Download PDF'}
+        </button>
+      )}
+    </div>
+  )
+
+  if (draft.intake_validation_status === 'pending') {
+    return (
+      <div className="mb-6 flex items-center gap-3 rounded-2xl border border-card-border bg-white p-[22px_30px] text-[13px] text-muted">
+        <div className="h-5 w-5 shrink-0 animate-spin rounded-full border-2 border-accent-soft border-t-accent" />
+        Running Intake Validation — a second, independent readiness audit of this draft against SAP delivery norms…
+      </div>
+    )
+  }
+
+  if (draft.intake_validation_status === 'failed' || !draft.intake_validation) {
+    return (
+      <div className="mb-6 flex flex-col gap-3 rounded-2xl border border-red-border bg-red-soft p-[22px_30px]">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <div className="font-heading text-[15px] font-bold text-red-text">Intake Validation failed</div>
+            <div className="mt-1 text-[12.5px] text-red-text">
+              {draft.intake_validation_error || 'The assessment could not be completed.'}
+            </div>
+          </div>
+          {actions}
+        </div>
+        {error && <div className="text-[12px] text-red-text">{error}</div>}
+      </div>
+    )
+  }
+
+  const iv = draft.intake_validation
+  const verdict = verdictClasses(iv.verdict)
+  const flaggedChecks = iv.quality_checks.filter((c) => c.status !== 'pass').length
+  const checklistPass = iv.checklist.filter((c) => c.status === 'pass').length
+
+  const byCategory = new Map<string, IntakeChecklistItem[]>()
+  for (const item of iv.checklist) {
+    const list = byCategory.get(item.category) ?? []
+    list.push(item)
+    byCategory.set(item.category, list)
+  }
+
+  return (
+    <div className="mb-6 flex flex-col gap-5 rounded-2xl border border-card-border bg-white p-[26px_30px]">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <div className="font-heading text-[17px] font-extrabold">Intake Validation</div>
+          <div className="mt-0.5 text-[12.5px] text-muted">
+            SAP delivery-readiness audit — structure, specificity, and testability, graded against a fixed
+            checklist. Distinct from the grounding-focused score above.
+          </div>
+        </div>
+        <div className="flex flex-wrap items-start gap-4">
+          <div className="text-right">
+            <div className={`font-heading text-[26px] font-extrabold leading-none ${verdict.text}`}>
+              {iv.overall_pct.toFixed(0)}%
+            </div>
+            <span className={`mt-1 inline-block whitespace-nowrap rounded-full px-2.5 py-1 text-[11px] font-bold ${verdict.pill}`}>
+              {VERDICT_LABEL[iv.verdict] ?? iv.verdict}
+            </span>
+          </div>
+          {actions}
+        </div>
+      </div>
+
+      {error && <div className="rounded-md border border-red-border bg-red-soft px-3 py-2 text-[12px] text-red-text">{error}</div>}
+
+      <div className="text-[13.5px] leading-relaxed text-[#333d4d]">{iv.assessment}</div>
+
+      <div className="grid grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-4">
+        {Object.entries(iv.radar).map(([dim, score]) => (
+          <div key={dim}>
+            <div className="mb-1 flex items-center justify-between text-[11px] font-semibold text-muted">
+              <span className="capitalize">{dim.replace(/_/g, ' ')}</span>
+              <span>{score}</span>
+            </div>
+            <div className="h-1.5 w-full overflow-hidden rounded-full bg-app-bg">
+              <div className={`h-full rounded-full ${radarBarColor(score)}`} style={{ width: `${score}%` }} />
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="border-t border-divider pt-4">
+        <button
+          type="button"
+          onClick={() => setChecksOpen((v) => !v)}
+          className="flex w-full items-center justify-between bg-transparent p-0 text-left"
+        >
+          <div className="font-heading text-[14px] font-bold">
+            Quality Checks{' '}
+            <span className="font-normal text-muted">
+              ({flaggedChecks} flagged of {iv.quality_checks.length})
+            </span>
+          </div>
+          <span className="text-[12px] font-semibold text-accent">{checksOpen ? 'Hide' : 'Show'}</span>
+        </button>
+        {checksOpen && (
+          <div className="mt-3 flex flex-col gap-2">
+            {iv.quality_checks.map((qc) => {
+              const sc = checkStatusClasses(qc.status)
+              return (
+                <div key={qc.key} className={`rounded-lg border ${sc.border} ${sc.bg} px-3.5 py-2.5 text-[12.5px]`}>
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="font-semibold">{qc.title}</div>
+                    <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10.5px] font-bold ${sc.pill}`}>
+                      {CHECK_STATUS_LABEL[qc.status]}
+                    </span>
+                  </div>
+                  <div className="mt-1 text-[#333d4d]">{qc.finding}</div>
+                  {qc.suggestion && <div className="mt-1 text-faint">→ {qc.suggestion}</div>}
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </div>
+
+      {iv.corrections.length > 0 && (
+        <div className="border-t border-divider pt-4">
+          <button
+            type="button"
+            onClick={() => setCorrectionsOpen((v) => !v)}
+            className="flex w-full items-center justify-between bg-transparent p-0 text-left"
+          >
+            <div className="font-heading text-[14px] font-bold">
+              Corrections Required <span className="font-normal text-muted">({iv.corrections.length})</span>
+            </div>
+            <span className="text-[12px] font-semibold text-accent">{correctionsOpen ? 'Hide' : 'Show'}</span>
+          </button>
+          {correctionsOpen && (
+            <ul className="m-0 mt-3 flex list-none flex-col gap-2 p-0">
+              {iv.corrections.map((c, i) => (
+                <li
+                  key={i}
+                  className="flex items-start gap-2.5 rounded-lg border border-input-border bg-app-bg/50 px-3.5 py-2.5 text-[12.5px]"
+                >
+                  <span className={`mt-0.5 shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold ${severityPillClasses(c.severity)}`}>
+                    {c.severity.toUpperCase()}
+                  </span>
+                  <span className="text-[#333d4d]">{c.text}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+
+      <div className="border-t border-divider pt-4">
+        <button
+          type="button"
+          onClick={() => setChecklistOpen((v) => !v)}
+          className="flex w-full items-center justify-between bg-transparent p-0 text-left"
+        >
+          <div className="font-heading text-[14px] font-bold">
+            Intake Checklist{' '}
+            <span className="font-normal text-muted">
+              ({checklistPass}/{iv.checklist.length} pass)
+            </span>
+          </div>
+          <span className="text-[12px] font-semibold text-accent">{checklistOpen ? 'Hide' : 'Show'}</span>
+        </button>
+        {checklistOpen && (
+          <div className="mt-3 flex flex-col gap-4">
+            {Array.from(byCategory.entries()).map(([category, items]) => (
+              <div key={category}>
+                <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-faint">{category}</div>
+                <div className="overflow-hidden rounded-lg border border-card-border">
+                  {items.map((item) => {
+                    const sc = checkStatusClasses(item.status)
+                    return (
+                      <div
+                        key={item.item_id}
+                        className="flex items-start gap-3 border-b border-divider px-3.5 py-2.5 text-[12px] last:border-0"
+                      >
+                        <span className={`mt-0.5 shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold ${sc.pill}`}>
+                          {CHECK_STATUS_LABEL[item.status]}
+                        </span>
+                        <div>
+                          <div className="font-semibold text-[#333d4d]">{item.check}</div>
+                          <div className="mt-0.5 text-muted">{item.finding}</div>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="border-t border-divider pt-2.5 text-[11.5px] text-faint">
+        Checklist items marked "Cannot Verify" would require a live SAP system connection this tool doesn't have —
+        they describe what's named in the document, not whether it exists in any real system.
       </div>
     </div>
   )

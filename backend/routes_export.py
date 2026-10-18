@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session
 
 from backend.auth import get_current_user
 from backend.db import get_db
-from backend.export import build_docx, build_markdown, build_pdf
+from backend.export import build_docx, build_intake_validation_pdf, build_markdown, build_pdf
 from backend.fsd_enhancement_meta import build_document_identification, build_review_signoff, build_validation_table
 from backend.models_db import FsdDraft, Project, TrackedObject
 from backend.push import PushNotConfigured, push_docx_to_google_drive, push_markdown_to_github
@@ -56,6 +56,8 @@ def _load_context(db: Session, draft_id: str) -> tuple[dict, dict, dict]:
         "sections": draft.sections_json,
         "quality_score": draft.quality_score_json,
         "note": draft.note,
+        "intake_validation_status": draft.intake_validation_status or "pending",
+        "intake_validation": draft.intake_validation_json,
         "approvals": {
             "module_lead_approved": draft.module_lead_approved,
             "module_lead_approved_by": draft.module_lead_approved_by,
@@ -111,6 +113,18 @@ def export_pdf(draft_id: str, db: Session = Depends(get_db)):
     draft, obj, project = _load_context(db, draft_id)
     content = build_pdf(draft, obj, project)
     filename = _filename(obj, draft, "pdf")
+    return Response(
+        content=content,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get("/fsd-drafts/{draft_id}/export/intake-validation-pdf")
+def export_intake_validation_pdf(draft_id: str, db: Session = Depends(get_db)):
+    draft, obj, project = _load_context(db, draft_id)
+    content = build_intake_validation_pdf(draft, obj, project)
+    filename = f"{_slugify(obj['name'])}-intake-validation-v{draft['version']}.pdf"
     return Response(
         content=content,
         media_type="application/pdf",

@@ -33,7 +33,7 @@ from pydantic import BaseModel, Field
 
 from backend.auth import get_current_user
 from backend.config import ANTHROPIC_API_KEY
-from backend.db import Base, SessionLocal, engine
+from backend.db import Base, SessionLocal, engine, run_lightweight_migrations
 from backend.models_db import User
 from backend.schemas import SourceDocument, FSDDraft, FSD_TEMPLATE_SECTIONS
 from backend.agents.pipeline import run_fsd_creation
@@ -62,6 +62,7 @@ app.add_middleware(
 @app.on_event("startup")
 def on_startup():
     Base.metadata.create_all(bind=engine)
+    run_lightweight_migrations()
     db = SessionLocal()
     try:
         seed_if_empty(db)

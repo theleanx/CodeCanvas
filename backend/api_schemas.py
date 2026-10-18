@@ -13,7 +13,7 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
-from backend.schemas import FSDSection, LedgerEntry, QualityScore, SourceDocument
+from backend.schemas import FSDSection, IntakeValidationResult, LedgerEntry, QualityScore, SourceDocument
 
 
 # --- Auth --------------------------------------------------------------------
@@ -158,3 +158,12 @@ class FsdDraftOut(BaseModel):
     document_identification: Optional[dict] = None
     review_signoff: Optional[list[dict]] = None
     validation_table: Optional[list[dict]] = None
+    # Intake Validation runs as its own LLM call right after a draft is
+    # generated and must never be allowed to fail the generation itself, so
+    # it's tracked with a status rather than required: "pending" briefly
+    # while generate_fsd_draft is still running it, "complete" with `result`
+    # populated, or "failed" with `error` set and `result` None -- the
+    # frontend offers a manual re-run in the failed case.
+    intake_validation_status: Literal["pending", "complete", "failed"] = "pending"
+    intake_validation: Optional[IntakeValidationResult] = None
+    intake_validation_error: Optional[str] = None

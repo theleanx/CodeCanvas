@@ -152,6 +152,10 @@ export function setApproval(draftId: string, role: 'module_lead' | 'solution_arc
   })
 }
 
+export function rerunIntakeValidation(draftId: string) {
+  return request<FsdDraftOut>(`/api/fsd-drafts/${draftId}/intake-validation/rerun`, { method: 'POST' })
+}
+
 // --- export / push ---
 
 export type ExportFormat = 'markdown' | 'docx' | 'pdf'
@@ -180,6 +184,41 @@ export async function downloadFsdExport(draftId: string, format: ExportFormat): 
   const disposition = res.headers.get('Content-Disposition') || ''
   const match = disposition.match(/filename="([^"]+)"/)
   const filename = match ? match[1] : `fsd-export.${format === 'markdown' ? 'md' : format}`
+
+  const blob = await res.blob()
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  URL.revokeObjectURL(url)
+}
+
+// Same pattern as downloadFsdExport above, but for the Intake Validation
+// assessment -- a separate report from the FSD content itself.
+export async function downloadIntakeValidationPdf(draftId: string): Promise<void> {
+  const token = getToken()
+  const headers: Record<string, string> = {}
+  if (token) headers.Authorization = `Bearer ${token}`
+
+  const res = await fetch(`${API_BASE}/api/fsd-drafts/${draftId}/export/intake-validation-pdf`, { headers })
+  if (!res.ok) {
+    if (res.status === 401) onUnauthorized?.()
+    let detail = `Download failed (${res.status})`
+    try {
+      const body = await res.json()
+      if (body?.detail) detail = typeof body.detail === 'string' ? body.detail : JSON.stringify(body.detail)
+    } catch {
+      // not JSON -- keep the generic message
+    }
+    throw new ApiError(res.status, detail)
+  }
+
+  const disposition = res.headers.get('Content-Disposition') || ''
+  const match = disposition.match(/filename="([^"]+)"/)
+  const filename = match ? match[1] : 'intake-validation.pdf'
 
   const blob = await res.blob()
   const url = URL.createObjectURL(blob)

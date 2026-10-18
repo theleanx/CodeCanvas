@@ -135,3 +135,60 @@ class FSDDraft(BaseModel):
     sections: list[FSDSection]
     ledger: list[LedgerEntry]
     quality_score: QualityScore
+
+
+# --- Intake Validation --------------------------------------------------
+# A second, independent assessment of a finished FSD draft -- not the
+# grounding check above (which asks "does every section trace back to a
+# source document"), but a readiness audit against SAP delivery norms
+# ("is this document actually buildable from"). Runs as its own LLM call
+# after a draft is generated (backend/agents/intake_validation.py), graded
+# against the fixed checklist in backend/intake_checklist.py.
+
+IntakeVerdict = Literal["ready", "needs_correction", "not_ready"]
+IntakeCheckStatus = Literal["pass", "warn", "fail", "cannot_verify"]
+
+
+class IntakeRadarScores(BaseModel):
+    clarity: int
+    completeness: int
+    feasibility: int
+    technical_detail: int
+    business_value: int
+    security: int
+    performance: int
+    compliance: int
+
+
+class IntakeQualityCheck(BaseModel):
+    key: str
+    title: str
+    status: IntakeCheckStatus
+    finding: str
+    suggestion: Optional[str] = Field(None, description="What to do about it. Omitted when status == pass.")
+
+
+class IntakeCorrection(BaseModel):
+    severity: Literal["critical", "high", "medium", "low"]
+    text: str
+
+
+class IntakeChecklistItem(BaseModel):
+    item_id: str
+    category: str
+    severity: Literal["critical", "high", "medium", "low"]
+    check: str
+    status: IntakeCheckStatus
+    finding: str
+
+
+class IntakeValidationResult(BaseModel):
+    verdict: IntakeVerdict
+    overall_pct: float
+    radar: IntakeRadarScores
+    assessment: str = Field(..., description="A short narrative paragraph explaining the verdict, like an assessor's summary.")
+    quality_checks: list[IntakeQualityCheck]
+    corrections: list[IntakeCorrection] = Field(
+        default_factory=list, description="Prioritized, actionable fixes -- most severe first."
+    )
+    checklist: list[IntakeChecklistItem]

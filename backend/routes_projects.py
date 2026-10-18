@@ -20,7 +20,10 @@ from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from backend.agents.intake_validation import run_intake_validation
+from backend.agents.json_utils import ResponseTruncated
 from backend.agents.pipeline import run_fsd_creation
+from backend.schemas import FSDSection
 from backend.api_schemas import (
     ApprovalPatch,
     FsdDraftOut,
@@ -83,6 +86,26 @@ def _object_out(db: Session, obj: TrackedObject) -> ObjectOut:
     )
 
 
+def _run_intake_validation_safely(
+    sections: list[FSDSection], object_name: str, object_type: str, object_module: str, project_name: str
+) -> tuple[str, dict | None, str | None]:
+    """Intake Validation is a second LLM call layered on top of FSD
+    generation, not a precondition for it -- a failure here (truncation, a
+    malformed response, a transient API error) must never cost the user the
+    FSD draft they just waited for. Always returns a (status, result_dict,
+    error) tuple instead of raising; callers persist whichever one came
+    back and surface a retry action for "failed" rather than losing the draft."""
+    try:
+        result = run_intake_validation(sections, object_name, object_type, object_module, project_name)
+        return "complete", result.model_dump(), None
+    except ResponseTruncated as exc:
+        logger.warning("intake_validation truncated object=%s", object_name)
+        return "failed", None, str(exc)
+    except Exception as exc:
+        logger.exception("intake_validation failed object=%s", object_name)
+        return "failed", None, f"Intake Validation failed: {exc}"
+
+
 def _draft_out(db: Session, draft: FsdDraft) -> FsdDraftOut:
     out = FsdDraftOut(
         id=draft.id,
@@ -96,6 +119,9 @@ def _draft_out(db: Session, draft: FsdDraft) -> FsdDraftOut:
         sections=draft.sections_json,
         quality_score=draft.quality_score_json,
         note=draft.note,
+        intake_validation_status=draft.intake_validation_status or "pending",
+        intake_validation=draft.intake_validation_json,
+        intake_validation_error=draft.intake_validation_error,
         approvals=ApprovalState(
             module_lead_approved=draft.module_lead_approved,
             module_lead_approved_by=draft.module_lead_approved_by,
@@ -291,6 +317,16 @@ def generate_fsd_draft(object_id: str, payload: FsdGenerateRequest, db: Session 
         raise HTTPException(status_code=502, detail=f"Agent pipeline failed: {exc}") from exc
     duration_ms = int((time.monotonic() - started) * 1000)
 
+    # Intake Validation (chosen to auto-run with every generate/regenerate):
+    # a second, independent LLM call that audits the draft just produced
+    # against SAP delivery norms. Deliberately run and persisted alongside
+    # the draft itself, never allowed to turn a successful FSD generation
+    # into a failed request -- see _run_intake_validation_safely.
+    project = db.get(Project, obj.project_id)
+    iv_status, iv_result, iv_error = _run_intake_validation_safely(
+        agent_draft.sections, obj.name, obj.type, obj.module, project.name if project else "—"
+    )
+
     draft = FsdDraft(
         object_id=object_id,
         version=next_version,
@@ -301,6 +337,9 @@ def generate_fsd_draft(object_id: str, payload: FsdGenerateRequest, db: Session 
         request_id=request_id,
         duration_ms=duration_ms,
         note=payload.note or (f"Generated from {len(payload.sources)} source(s)" if next_version == 1 else "Regenerated"),
+        intake_validation_status=iv_status,
+        intake_validation_json=iv_result,
+        intake_validation_error=iv_error,
     )
     db.add(draft)
 
@@ -325,6 +364,28 @@ def generate_fsd_draft(object_id: str, payload: FsdGenerateRequest, db: Session 
         ) from exc
     db.refresh(draft)
     logger.info("fsd_generate done request_id=%s duration_ms=%s version=%s", request_id, duration_ms, next_version)
+    return _draft_out(db, draft)
+
+
+@router.post("/fsd-drafts/{draft_id}/intake-validation/rerun", response_model=FsdDraftOut)
+def rerun_intake_validation(draft_id: str, db: Session = Depends(get_db)):
+    """Re-run just the Intake Validation assessment against an existing
+    draft's content -- for when it failed the first time (a transient model
+    error, a truncation), or the user just wants a fresh read without
+    regenerating the whole FSD (which would mint a new version)."""
+    draft = _get_draft_or_404(db, draft_id)
+    obj = _get_object_or_404(db, draft.object_id)
+    project = db.get(Project, obj.project_id)
+    sections = [FSDSection.model_validate(s) for s in draft.sections_json]
+
+    iv_status, iv_result, iv_error = _run_intake_validation_safely(
+        sections, obj.name, obj.type, obj.module, project.name if project else "—"
+    )
+    draft.intake_validation_status = iv_status
+    draft.intake_validation_json = iv_result
+    draft.intake_validation_error = iv_error
+    db.commit()
+    db.refresh(draft)
     return _draft_out(db, draft)
 
 

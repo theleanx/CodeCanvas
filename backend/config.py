@@ -35,6 +35,13 @@ MAX_TOKENS_DRAFT = 8192
 # as a second line of defense if a draft is ever still big enough to hit it.
 MAX_TOKENS_ENHANCEMENT_DRAFT = 16000
 
+# The Intake Validation assessment (backend/agents/intake_validation.py)
+# grades a finished FSD against ~18-20 checklist items plus ~8 quality
+# checks, a radar score, a narrative, and a prioritized corrections list,
+# all in one JSON response. Sized generously from the start, having
+# already been burned twice today by budgets sized too close to the edge.
+MAX_TOKENS_INTAKE_VALIDATION = 12000
+
 # --- Export / push integrations ---------------------------------------------
 # Both are optional -- the download endpoints (Markdown/Word/PDF) need none
 # of this. These only gate the two "push" buttons; each is turned off until

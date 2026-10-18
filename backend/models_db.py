@@ -105,6 +105,22 @@ class FsdDraft(Base):
     sections_json: Mapped[list] = mapped_column(JSON)      # list[FSDSection]
     quality_score_json: Mapped[dict] = mapped_column(JSON) # QualityScore
 
+    # The Intake Validation assessment -- a second, independent LLM call
+    # (backend/agents/intake_validation.py) that runs right after a draft is
+    # generated. Nullable/status-tracked rather than required: it must never
+    # be allowed to fail the FSD generation itself, so a failure here is
+    # recorded, not raised, and the user gets a "re-run" action instead of a
+    # lost draft.
+    intake_validation_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)  # IntakeValidationResult
+    # Nullable (not NOT NULL default="pending") specifically so the lightweight
+    # migration in backend/db.py can ADD COLUMN this onto an existing,
+    # already-populated table without a DEFAULT clause -- a plain ALTER TABLE
+    # ADD COLUMN ... NOT NULL fails against existing rows on Postgres. New
+    # rows still get "pending" from the Python-side default below; existing
+    # rows read back as NULL, which the API layer treats the same as "pending".
+    intake_validation_status: Mapped[str | None] = mapped_column(String(20), default="pending", nullable=True)
+    intake_validation_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+
     request_id: Mapped[str] = mapped_column(String(64), default="")
     duration_ms: Mapped[int] = mapped_column(Integer, default=0)
 

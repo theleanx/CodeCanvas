@@ -160,6 +160,60 @@ export interface FsdDraftSummary {
   note: string
 }
 
+// --- Intake Validation --------------------------------------------------
+// A second, independent assessment of a finished FSD draft -- an SAP
+// delivery-readiness audit, distinct from the grounding-focused
+// QualityScore above. Runs automatically with every generate/regenerate.
+
+export type IntakeVerdict = 'ready' | 'needs_correction' | 'not_ready'
+export type IntakeCheckStatus = 'pass' | 'warn' | 'fail' | 'cannot_verify'
+export type IntakeSeverity = 'critical' | 'high' | 'medium' | 'low'
+
+export interface IntakeRadarScores {
+  clarity: number
+  completeness: number
+  feasibility: number
+  technical_detail: number
+  business_value: number
+  security: number
+  performance: number
+  compliance: number
+}
+
+export interface IntakeQualityCheck {
+  key: string
+  title: string
+  status: IntakeCheckStatus
+  finding: string
+  suggestion: string | null
+}
+
+export interface IntakeCorrection {
+  severity: IntakeSeverity
+  text: string
+}
+
+export interface IntakeChecklistItem {
+  item_id: string
+  category: string
+  severity: IntakeSeverity
+  check: string
+  status: IntakeCheckStatus
+  finding: string
+}
+
+export interface IntakeValidationResult {
+  verdict: IntakeVerdict
+  overall_pct: number
+  radar: IntakeRadarScores
+  assessment: string
+  quality_checks: IntakeQualityCheck[]
+  corrections: IntakeCorrection[]
+  checklist: IntakeChecklistItem[]
+}
+
+export type IntakeValidationStatus = 'pending' | 'complete' | 'failed'
+
 export interface FsdDraftOut {
   id: string
   object_id: string
@@ -176,4 +230,7 @@ export interface FsdDraftOut {
   document_identification: DocumentIdentification | null
   review_signoff: ReviewSignoffRow[] | null
   validation_table: ValidationRow[] | null
+  intake_validation_status: IntakeValidationStatus
+  intake_validation: IntakeValidationResult | null
+  intake_validation_error: string | null
 }

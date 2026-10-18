@@ -579,7 +579,7 @@ function IntakeValidationCard({ draft, onUpdated }: { draft: FsdDraftOut; onUpda
         disabled={busy !== null}
         className="whitespace-nowrap rounded-md border border-input-border bg-white px-3 py-1.5 text-[12px] font-semibold text-slate-pill-text disabled:opacity-50"
       >
-        {busy === 'rerun' ? 'Running…' : 'Re-run assessment'}
+        {busy === 'rerun' ? 'Running…' : draft.intake_validation_status === 'pending' ? 'Run Intake Validation' : 'Re-run assessment'}
       </button>
       {draft.intake_validation && (
         <button
@@ -594,11 +594,21 @@ function IntakeValidationCard({ draft, onUpdated }: { draft: FsdDraftOut; onUpda
     </div>
   )
 
+  // "pending" only ever means "never assessed" here -- Intake Validation
+  // runs synchronously as part of generate/regenerate and always resolves
+  // to complete/failed by the time that request returns, so a draft only
+  // shows pending on *first load* if it's a draft from before this feature
+  // existed (its column is simply unset). Opening or viewing this page
+  // never itself triggers an assessment -- that only happens on an
+  // explicit "Run Intake Validation" click here, or on generate/regenerate.
   if (draft.intake_validation_status === 'pending') {
     return (
-      <div className="mb-6 flex items-center gap-3 rounded-2xl border border-card-border bg-white p-[22px_30px] text-[13px] text-muted">
-        <div className="h-5 w-5 shrink-0 animate-spin rounded-full border-2 border-accent-soft border-t-accent" />
-        Running Intake Validation — a second, independent readiness audit of this draft against SAP delivery norms…
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-card-border bg-white p-[22px_30px]">
+        <div className="text-[13px] text-muted">
+          This draft hasn't been through Intake Validation yet (it was generated before this check existed, or it
+          hasn't been run manually).
+        </div>
+        {actions}
       </div>
     )
   }

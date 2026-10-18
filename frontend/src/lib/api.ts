@@ -1,7 +1,15 @@
 import type {
+  ComplexityConfig,
+  DocumentTemplate,
+  DocumentTemplateSave,
+  DocumentTemplateUploadResult,
+  DocumentType,
   FsdDraftOut,
   FsdDraftSummary,
+  ModuleConfig,
   ObjectCreate,
+  ObjectType,
+  ObjectTypeConfig,
   PipelineStage,
   Project,
   ProjectCreate,
@@ -122,6 +130,107 @@ export function setObjectStageStatus(objectId: string, stage: PipelineStageKey, 
     method: 'PATCH',
     body: JSON.stringify({ stage, status }),
   })
+}
+
+export function setObjectCancelled(objectId: string, cancelled: boolean) {
+  return request<TrackedObject>(`/api/objects/${objectId}/cancel`, {
+    method: 'PATCH',
+    body: JSON.stringify({ cancelled }),
+  })
+}
+
+// --- Project Brain ---
+
+export function listObjectTypeConfigs(projectId: string) {
+  return request<ObjectTypeConfig[]>(`/api/projects/${projectId}/brain/object-types`)
+}
+
+export function updateObjectTypeConfig(
+  projectId: string,
+  internalKey: ObjectType,
+  patch: Partial<Pick<ObjectTypeConfig, 'display_label' | 'id_prefix' | 'enabled'>>,
+) {
+  return request<ObjectTypeConfig>(`/api/projects/${projectId}/brain/object-types/${internalKey}`, {
+    method: 'PATCH',
+    body: JSON.stringify(patch),
+  })
+}
+
+export function listModuleConfigs(projectId: string) {
+  return request<ModuleConfig[]>(`/api/projects/${projectId}/brain/modules`)
+}
+
+export function createModuleConfig(projectId: string, name: string, idCode?: string) {
+  return request<ModuleConfig>(`/api/projects/${projectId}/brain/modules`, {
+    method: 'POST',
+    body: JSON.stringify({ name, id_code: idCode || undefined }),
+  })
+}
+
+export function updateModuleConfig(
+  projectId: string,
+  moduleId: string,
+  patch: Partial<Pick<ModuleConfig, 'name' | 'id_code' | 'enabled'>>,
+) {
+  return request<ModuleConfig>(`/api/projects/${projectId}/brain/modules/${moduleId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(patch),
+  })
+}
+
+export function deleteModuleConfig(projectId: string, moduleId: string) {
+  return request<void>(`/api/projects/${projectId}/brain/modules/${moduleId}`, { method: 'DELETE' })
+}
+
+export function listComplexityConfigs(projectId: string) {
+  return request<ComplexityConfig[]>(`/api/projects/${projectId}/brain/complexities`)
+}
+
+export function createComplexityConfig(projectId: string, name: string) {
+  return request<ComplexityConfig>(`/api/projects/${projectId}/brain/complexities`, {
+    method: 'POST',
+    body: JSON.stringify({ name }),
+  })
+}
+
+export function updateComplexityConfig(
+  projectId: string,
+  complexityId: string,
+  patch: Partial<Pick<ComplexityConfig, 'name' | 'enabled'>>,
+) {
+  return request<ComplexityConfig>(`/api/projects/${projectId}/brain/complexities/${complexityId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(patch),
+  })
+}
+
+export function deleteComplexityConfig(projectId: string, complexityId: string) {
+  return request<void>(`/api/projects/${projectId}/brain/complexities/${complexityId}`, { method: 'DELETE' })
+}
+
+export function listDocumentTemplates(projectId: string) {
+  return request<DocumentTemplate[]>(`/api/projects/${projectId}/brain/document-templates`)
+}
+
+export function uploadDocumentTemplate(projectId: string, file: File) {
+  const form = new FormData()
+  form.append('file', file)
+  return request<DocumentTemplateUploadResult>(`/api/projects/${projectId}/brain/document-templates/upload`, {
+    method: 'POST',
+    body: form,
+  })
+}
+
+export function saveDocumentTemplate(
+  projectId: string,
+  documentType: DocumentType,
+  objectTypeKey: ObjectType,
+  payload: DocumentTemplateSave,
+) {
+  return request<DocumentTemplate>(
+    `/api/projects/${projectId}/brain/document-templates/${encodeURIComponent(documentType)}/${objectTypeKey}`,
+    { method: 'PUT', body: JSON.stringify(payload) },
+  )
 }
 
 // --- FSD drafts ---

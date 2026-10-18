@@ -140,6 +140,18 @@ class FSDDraft(BaseModel):
     token_usage: TokenUsage = Field(default_factory=TokenUsage)
 
 
+class ResolvedFsdTemplate(BaseModel):
+    """A client-specific ProjectDocumentTemplate (models_db.py), resolved
+    into exactly what backend/agents/fsd_draft_templated.py needs to draft
+    against it -- the DB row itself stays out of backend/agents/* so the
+    agent layer never imports the ORM."""
+
+    sections: list[dict] = Field(..., description='[{"key": str, "title": str}, ...], admin-defined, replaces the in-built template')
+    diagram_section_key: Optional[str] = None
+    allow_ai_inferred: bool = False
+    name: str = Field("", description="The uploaded file's name, for provenance display on the resulting draft")
+
+
 # --- Intake Validation --------------------------------------------------
 # A second, independent assessment of a finished FSD draft -- not the
 # grounding check above (which asks "does every section trace back to a

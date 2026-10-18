@@ -112,32 +112,105 @@ export interface ProjectCreate {
   geography: string
 }
 
+// The six behavioral categories are fixed in code (they select an FSD
+// template + Intake Validation checklist) -- a project can only relabel
+// them for display (ProjectBrain's "object types" config), never add a
+// genuinely new one, so this stays a closed union.
 export type ObjectType = 'Report' | 'Interface' | 'Conversion' | 'Enhancement' | 'Form' | 'Workflow'
-export type ObjectModule = 'SD' | 'MM' | 'PP' | 'QM' | 'WM/EWM' | 'FI/CO' | 'BTP'
-export type ObjectComplexity = 'Low' | 'Medium' | 'High'
+// Module and Complexity are each a free, per-project vocabulary configured
+// in Project Brain -- no fixed set of values, so these are just `string`.
 export type PipelineStage = 'Not Started' | 'In Progress' | 'Blocked' | 'On Hold' | 'Complete'
 
 export interface TrackedObject {
   id: string
   project_id: string
   name: string
+  object_code: string | null
   type: ObjectType
-  module: ObjectModule
-  complexity: ObjectComplexity
+  module: string
+  complexity: string
+  cancelled: boolean
   fsd_status: PipelineStage
   feasibility_status: PipelineStage
   tsd_status: PipelineStage
   code_review_status: PipelineStage
   unit_test_status: PipelineStage
   code_status: PipelineStage
+  // Computed server-side (backend/project_brain.py) -- never independently
+  // editable, so it can't drift from the per-stage statuses it's built from.
+  overall_status: string
   latest_fsd_version: number | null
 }
 
 export interface ObjectCreate {
   name: string
   type: ObjectType
-  module: ObjectModule
-  complexity: ObjectComplexity
+  module: string
+  complexity: string
+}
+
+// --- Project Brain --------------------------------------------------------
+
+export const OBJECT_TYPE_INTERNAL_KEYS: ObjectType[] = ['Report', 'Interface', 'Conversion', 'Enhancement', 'Form', 'Workflow']
+export const DOCUMENT_TYPES = ['FSD', 'TSD', 'Code Review', 'Test Script'] as const
+export type DocumentType = (typeof DOCUMENT_TYPES)[number]
+
+export interface ObjectTypeConfig {
+  internal_key: ObjectType
+  display_label: string
+  id_prefix: string
+  enabled: boolean
+  sort_order: number
+}
+
+export interface ModuleConfig {
+  id: string
+  name: string
+  id_code: string
+  enabled: boolean
+  sort_order: number
+}
+
+export interface ComplexityConfig {
+  id: string
+  name: string
+  enabled: boolean
+  sort_order: number
+}
+
+export interface DocumentTemplateSection {
+  key: string
+  title: string
+}
+
+export interface DocumentTemplate {
+  document_type: DocumentType
+  object_type_key: ObjectType
+  source: 'in_built' | 'client_specific'
+  uploaded_filename: string | null
+  sections: DocumentTemplateSection[] | null
+  diagram_section_key: string | null
+  allow_ai_inferred: boolean
+  updated_at: string | null
+  updated_by: string | null
+  in_built_sections: DocumentTemplateSection[] | null
+  generation_available: boolean
+}
+
+export interface DocumentTemplateUploadResult {
+  filename: string
+  sections: DocumentTemplateSection[]
+  raw_text: string
+  char_count: number
+}
+
+export interface DocumentTemplateSave {
+  source: 'in_built' | 'client_specific'
+  uploaded_filename?: string | null
+  sections?: DocumentTemplateSection[] | null
+  diagram_section_key?: string | null
+  allow_ai_inferred?: boolean
+  raw_text?: string | null
 }
 
 export interface ApprovalState {
@@ -245,4 +318,6 @@ export interface FsdDraftOut {
   model_used: string | null
   token_usage_breakdown: Record<string, TokenUsageOut> | null
   token_usage_total: TokenUsageOut | null
+  template_source: 'in_built' | 'client_specific' | null
+  template_name: string | null
 }

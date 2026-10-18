@@ -24,12 +24,13 @@ from backend.agents.intake_validation import run_intake_validation
 from backend.agents.json_utils import ResponseTruncated
 from backend.agents.pipeline import run_fsd_creation
 from backend.config import AGENT_MODEL
-from backend.schemas import FSDSection
+from backend.schemas import FSDSection, ResolvedFsdTemplate
 from backend.api_schemas import (
     ApprovalPatch,
     FsdDraftOut,
     FsdDraftSummary,
     FsdGenerateRequest,
+    ObjectCancelPatch,
     ObjectCreate,
     ObjectOut,
     ObjectStatusPatch,
@@ -41,7 +42,16 @@ from backend.api_schemas import (
 from backend.auth import get_current_user
 from backend.db import get_db
 from backend.fsd_enhancement_meta import build_document_identification, build_review_signoff, build_validation_table
-from backend.models_db import FsdDraft, Project, TrackedObject, User
+from backend.models_db import (
+    FsdDraft,
+    Project,
+    ProjectComplexityConfig,
+    ProjectDocumentTemplate,
+    ProjectModuleConfig,
+    TrackedObject,
+    User,
+)
+from backend.project_brain import compute_overall_status, ensure_default_configs, next_object_code
 from backend.token_usage import TokenUsage, estimate_cost_usd
 
 logger = logging.getLogger("codecanvas")
@@ -76,15 +86,18 @@ def _object_out(db: Session, obj: TrackedObject) -> ObjectOut:
         id=obj.id,
         project_id=obj.project_id,
         name=obj.name,
+        object_code=obj.object_code,
         type=obj.type,
         module=obj.module,
         complexity=obj.complexity,
+        cancelled=bool(obj.cancelled),
         fsd_status=obj.fsd_status,
         feasibility_status=obj.feasibility_status,
         tsd_status=obj.tsd_status,
         code_review_status=obj.code_review_status,
         unit_test_status=obj.unit_test_status,
         code_status=obj.code_status,
+        overall_status=compute_overall_status(obj),
         latest_fsd_version=latest_version,
     )
 
@@ -160,6 +173,8 @@ def _draft_out(db: Session, draft: FsdDraft) -> FsdDraftOut:
         model_used=draft.model_used,
         token_usage_breakdown=token_usage_breakdown,
         token_usage_total=token_usage_total,
+        template_source=draft.template_source,
+        template_name=draft.template_name,
         approvals=ApprovalState(
             module_lead_approved=draft.module_lead_approved,
             module_lead_approved_by=draft.module_lead_approved_by,
@@ -171,10 +186,15 @@ def _draft_out(db: Session, draft: FsdDraft) -> FsdDraftOut:
     )
 
     # Document Identification / Review & Sign-off / the Validation table are
-    # only part of the Enhancement template -- computed here (not drafted by
-    # the model) from data that already exists, so they're always accurate.
+    # only part of the in-built Enhancement template -- computed here (not
+    # drafted by the model) from data that already exists, so they're always
+    # accurate. They're keyed to that template's own fixed section keys
+    # (future_process, requirements, etc.), so they're skipped for a draft
+    # that used a client-specific template instead, even for an
+    # Enhancement-category object -- those checks wouldn't mean anything
+    # against an arbitrary client section list.
     obj = db.get(TrackedObject, draft.object_id)
-    if obj and obj.type == "Enhancement":
+    if obj and obj.type == "Enhancement" and draft.template_source != "client_specific":
         project = db.get(Project, obj.project_id)
         draft_dict = out.model_dump()
         out.document_identification = build_document_identification(
@@ -261,7 +281,39 @@ def list_objects(project_id: str, db: Session = Depends(get_db)):
 @router.post("/projects/{project_id}/objects", response_model=ObjectOut, status_code=201)
 def create_object(project_id: str, payload: ObjectCreate, db: Session = Depends(get_db)):
     _get_project_or_404(db, project_id)
-    obj = TrackedObject(project_id=project_id, **payload.model_dump())
+    ensure_default_configs(db, project_id)
+
+    module_ok = (
+        db.query(ProjectModuleConfig)
+        .filter(
+            ProjectModuleConfig.project_id == project_id,
+            ProjectModuleConfig.name == payload.module,
+            ProjectModuleConfig.enabled.is_(True),
+        )
+        .first()
+    )
+    if not module_ok:
+        raise HTTPException(
+            status_code=422,
+            detail=f'"{payload.module}" isn\'t a module configured for this project -- add it in Project Brain first.',
+        )
+    complexity_ok = (
+        db.query(ProjectComplexityConfig)
+        .filter(
+            ProjectComplexityConfig.project_id == project_id,
+            ProjectComplexityConfig.name == payload.complexity,
+            ProjectComplexityConfig.enabled.is_(True),
+        )
+        .first()
+    )
+    if not complexity_ok:
+        raise HTTPException(
+            status_code=422,
+            detail=f'"{payload.complexity}" isn\'t a complexity level configured for this project -- add it in Project Brain first.',
+        )
+
+    object_code = next_object_code(db, project_id, payload.module, payload.type)
+    obj = TrackedObject(project_id=project_id, object_code=object_code, **payload.model_dump())
     db.add(obj)
     db.commit()
     db.refresh(obj)
@@ -295,6 +347,19 @@ def set_object_stage_status(object_id: str, payload: ObjectStatusPatch, db: Sess
     # (on generate, on approval) only happen as a side effect of someone
     # actually doing something on that stage, not of this endpoint.
     setattr(obj, _STAGE_COLUMN[payload.stage], payload.status)
+    db.commit()
+    db.refresh(obj)
+    return _object_out(db, obj)
+
+
+@router.patch("/objects/{object_id}/cancel", response_model=ObjectOut)
+def set_object_cancelled(object_id: str, payload: ObjectCancelPatch, db: Session = Depends(get_db)):
+    # Whole-object cancellation, distinct from any one stage being Blocked/On
+    # Hold -- see compute_overall_status in backend/project_brain.py. No
+    # special role gate (same as the per-stage status patch above): any
+    # logged-in user can set or clear it, and it's always reversible.
+    obj = _get_object_or_404(db, object_id)
+    obj.cancelled = payload.cancelled
     db.commit()
     db.refresh(obj)
     return _object_out(db, obj)
@@ -339,17 +404,48 @@ def get_fsd_draft(draft_id: str, db: Session = Depends(get_db)):
     return _draft_out(db, _get_draft_or_404(db, draft_id))
 
 
+def _resolve_fsd_template(db: Session, project_id: str, object_type_key: str) -> tuple[ResolvedFsdTemplate | None, str | None]:
+    """Looks up this project's Project Brain configuration for (FSD,
+    object_type_key). Returns (None, None) for the overwhelming majority of
+    objects -- "use the in-built template, exactly as always" -- and a
+    resolved template + its filename only when the project explicitly
+    uploaded and saved a client-specific one for this object type."""
+    row = (
+        db.query(ProjectDocumentTemplate)
+        .filter(
+            ProjectDocumentTemplate.project_id == project_id,
+            ProjectDocumentTemplate.document_type == "FSD",
+            ProjectDocumentTemplate.object_type_key == object_type_key,
+        )
+        .first()
+    )
+    if not row or row.source != "client_specific" or not row.sections_json:
+        return None, None
+    template = ResolvedFsdTemplate(
+        sections=row.sections_json,
+        diagram_section_key=row.diagram_section_key,
+        allow_ai_inferred=row.allow_ai_inferred,
+        name=row.uploaded_filename or "Client-specific template",
+    )
+    return template, template.name
+
+
 @router.post("/objects/{object_id}/fsd-drafts", response_model=FsdDraftOut, status_code=201)
 def generate_fsd_draft(object_id: str, payload: FsdGenerateRequest, db: Session = Depends(get_db)):
     obj = _get_object_or_404(db, object_id)
 
     next_version = (db.query(func.max(FsdDraft.version)).filter(FsdDraft.object_id == object_id).scalar() or 0) + 1
 
+    template, template_name = _resolve_fsd_template(db, obj.project_id, obj.type)
+
     request_id = str(uuid.uuid4())
-    logger.info("fsd_generate start request_id=%s object_id=%s version=%s", request_id, object_id, next_version)
+    logger.info(
+        "fsd_generate start request_id=%s object_id=%s version=%s template=%s",
+        request_id, object_id, next_version, template_name or "in_built",
+    )
     started = time.monotonic()
     try:
-        agent_draft = run_fsd_creation(payload.sources, obj.type)
+        agent_draft = run_fsd_creation(payload.sources, obj.type, template=template)
     except Exception as exc:
         logger.exception("fsd_generate failed request_id=%s", request_id)
         raise HTTPException(status_code=502, detail=f"Agent pipeline failed: {exc}") from exc
@@ -383,6 +479,8 @@ def generate_fsd_draft(object_id: str, payload: FsdGenerateRequest, db: Session 
             "ledger_and_draft": agent_draft.token_usage.model_dump(),
             "intake_validation": iv_usage.model_dump(),
         },
+        template_source="client_specific" if template else "in_built",
+        template_name=template_name,
     )
     db.add(draft)
 

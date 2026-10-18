@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 import AppShell from '../components/AppShell'
-import { PipelinePill } from '../components/StatusPill'
-import { ApiError, getLatestFsdDraft, getObject, getProject, setObjectStageStatus } from '../lib/api'
+import { OverallStatusPill, PipelinePill } from '../components/StatusPill'
+import { ApiError, getLatestFsdDraft, getObject, getProject, setObjectCancelled, setObjectStageStatus } from '../lib/api'
 import type { PipelineStageKey } from '../lib/api'
 import type { FsdDraftOut, PipelineStage, Project, TrackedObject } from '../lib/types'
 
@@ -94,6 +94,16 @@ export default function ObjectDashboard() {
     }
   }
 
+  async function handleToggleCancelled() {
+    if (!objectId) return
+    try {
+      const updated = await setObjectCancelled(objectId, !object.cancelled)
+      setState({ phase: 'done', project, object: updated })
+    } catch {
+      // best-effort -- a failed toggle just leaves the button as it was
+    }
+  }
+
   return (
     <AppShell projectName={project.name} projectNav={PROJECT_NAV(project.id)} maxWidth="1100px">
       <div className="mb-4 text-[13px] text-muted">
@@ -107,10 +117,25 @@ export default function ObjectDashboard() {
         / <span className="text-ink">{object.name}</span>
       </div>
 
-      <div className="mb-6 flex items-center gap-2.5">
+      <div className="mb-6 flex flex-wrap items-center gap-2.5">
         <h1 className="m-0 font-heading text-2xl font-extrabold">{object.name}</h1>
+        {object.object_code && (
+          <span className="rounded-full bg-slate-pill-bg px-2.5 py-1 font-mono text-xs font-bold text-slate-pill-text">
+            {object.object_code}
+          </span>
+        )}
         <span className="rounded-full bg-slate-pill-bg px-2.5 py-1 text-xs font-bold text-slate-pill-text">{object.type}</span>
         <span className="rounded-full bg-slate-pill-bg px-2.5 py-1 text-xs font-bold text-slate-pill-text">{object.module}</span>
+        <OverallStatusPill status={object.overall_status} />
+        <button
+          type="button"
+          onClick={handleToggleCancelled}
+          className={`ml-auto rounded-lg border px-4 py-2 text-xs font-semibold ${
+            object.cancelled ? 'border-input-border bg-white text-slate-pill-text' : 'border-red-border bg-red-soft text-red-text'
+          }`}
+        >
+          {object.cancelled ? 'Reactivate Object' : 'Cancel Object'}
+        </button>
       </div>
 
       <StatCardRow stages={STAGES} object={object} draft={draft} draftLoaded={draftLoaded} />

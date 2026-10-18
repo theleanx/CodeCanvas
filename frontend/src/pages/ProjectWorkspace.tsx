@@ -2,9 +2,17 @@ import { useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import AppShell from '../components/AppShell'
-import { PipelinePill, ComplexityPill } from '../components/StatusPill'
-import { ApiError, createObject, getProject, listObjects } from '../lib/api'
-import type { ObjectComplexity, ObjectModule, ObjectType, PipelineStage, Project, TrackedObject } from '../lib/types'
+import { ComplexityPill, OverallStatusPill, PipelinePill } from '../components/StatusPill'
+import {
+  ApiError,
+  createObject,
+  getProject,
+  listComplexityConfigs,
+  listModuleConfigs,
+  listObjectTypeConfigs,
+  listObjects,
+} from '../lib/api'
+import type { ComplexityConfig, ModuleConfig, ObjectType, ObjectTypeConfig, PipelineStage, Project, TrackedObject } from '../lib/types'
 
 const PROJECT_NAV = (projectId: string) => [
   { label: 'Overview', to: `/projects/${projectId}/overview` },
@@ -12,14 +20,17 @@ const PROJECT_NAV = (projectId: string) => [
   { label: 'Project Brain', to: `/projects/${projectId}/brain` },
 ]
 
-const OBJECT_TYPES: ObjectType[] = ['Report', 'Interface', 'Conversion', 'Enhancement', 'Form', 'Workflow']
-const OBJECT_MODULES: ObjectModule[] = ['SD', 'MM', 'PP', 'QM', 'WM/EWM', 'FI/CO', 'BTP']
-const OBJECT_COMPLEXITIES: ObjectComplexity[] = ['Low', 'Medium', 'High']
-
 type LoadState =
   | { phase: 'loading' }
   | { phase: 'error'; message: string }
-  | { phase: 'done'; project: Project; objects: TrackedObject[] }
+  | {
+      phase: 'done'
+      project: Project
+      objects: TrackedObject[]
+      objectTypes: ObjectTypeConfig[]
+      modules: ModuleConfig[]
+      complexities: ComplexityConfig[]
+    }
 
 export default function ProjectWorkspace() {
   const { projectId } = useParams<{ projectId: string }>()
@@ -29,8 +40,14 @@ export default function ProjectWorkspace() {
   async function reload() {
     if (!projectId) return
     try {
-      const [project, objects] = await Promise.all([getProject(projectId), listObjects(projectId)])
-      setState({ phase: 'done', project, objects })
+      const [project, objects, objectTypes, modules, complexities] = await Promise.all([
+        getProject(projectId),
+        listObjects(projectId),
+        listObjectTypeConfigs(projectId),
+        listModuleConfigs(projectId),
+        listComplexityConfigs(projectId),
+      ])
+      setState({ phase: 'done', project, objects, objectTypes, modules, complexities })
     } catch (err) {
       setState({ phase: 'error', message: err instanceof ApiError ? err.message : 'Could not load this project.' })
     }
@@ -60,7 +77,8 @@ export default function ProjectWorkspace() {
     )
   }
 
-  const { project, objects } = state
+  const { project, objects, objectTypes, modules, complexities } = state
+  const typeLabel = (key: ObjectType) => objectTypes.find((t) => t.internal_key === key)?.display_label ?? key
 
   return (
     <AppShell projectName={project.name} projectNav={PROJECT_NAV(project.id)} maxWidth="100%">
@@ -90,6 +108,9 @@ export default function ProjectWorkspace() {
       {showAddForm && (
         <AddObjectForm
           projectId={project.id}
+          objectTypes={objectTypes}
+          modules={modules}
+          complexities={complexities}
           onCreated={() => {
             setShowAddForm(false)
             reload()
@@ -98,13 +119,15 @@ export default function ProjectWorkspace() {
       )}
 
       <div className="overflow-x-auto rounded-2xl border border-card-border bg-white">
-        <table className="w-full min-w-[1100px] border-collapse text-sm">
+        <table className="w-full min-w-[1250px] border-collapse text-sm">
           <thead>
             <tr className="border-b border-card-border text-left text-xs font-semibold uppercase tracking-wide text-muted">
+              <Th>Object ID</Th>
               <Th>Object</Th>
               <Th>Type</Th>
               <Th>Module</Th>
               <Th>Complexity</Th>
+              <Th>Overall Status</Th>
               <Th>FSD</Th>
               <Th>Feasibility</Th>
               <Th>TSD</Th>
@@ -116,6 +139,7 @@ export default function ProjectWorkspace() {
           <tbody>
             {objects.map((obj) => (
               <tr key={obj.id} className="border-b border-divider last:border-0 hover:bg-app-bg/60">
+                <td className="px-4 py-3 font-mono text-[12.5px] text-muted">{obj.object_code ?? '—'}</td>
                 <td className="px-4 py-3 font-medium">
                   <Link
                     to={`/projects/${project.id}/objects/${obj.id}`}
@@ -124,10 +148,13 @@ export default function ProjectWorkspace() {
                     {obj.name}
                   </Link>
                 </td>
-                <td className="px-4 py-3 text-muted">{obj.type}</td>
+                <td className="px-4 py-3 text-muted">{typeLabel(obj.type)}</td>
                 <td className="px-4 py-3 text-muted">{obj.module}</td>
                 <td className="px-4 py-3">
                   <ComplexityPill level={obj.complexity} />
+                </td>
+                <td className="px-4 py-3">
+                  <OverallStatusPill status={obj.overall_status} />
                 </td>
                 <td className="px-4 py-3">
                   <StagePillLink projectId={project.id} objectId={obj.id} tab="fsd" stage={obj.fsd_status} />
@@ -152,7 +179,7 @@ export default function ProjectWorkspace() {
 
             {objects.length === 0 && (
               <tr>
-                <td colSpan={10} className="px-4 py-8 text-center text-sm text-muted">
+                <td colSpan={12} className="px-4 py-8 text-center text-sm text-muted">
                   No custom objects yet. Add one to start an FSD.
                 </td>
               </tr>
@@ -164,16 +191,32 @@ export default function ProjectWorkspace() {
   )
 }
 
-function AddObjectForm({ projectId, onCreated }: { projectId: string; onCreated: () => void }) {
+function AddObjectForm({
+  projectId,
+  objectTypes,
+  modules,
+  complexities,
+  onCreated,
+}: {
+  projectId: string
+  objectTypes: ObjectTypeConfig[]
+  modules: ModuleConfig[]
+  complexities: ComplexityConfig[]
+  onCreated: () => void
+}) {
+  const enabledTypes = objectTypes.filter((t) => t.enabled)
+  const enabledModules = modules.filter((m) => m.enabled)
+  const enabledComplexities = complexities.filter((c) => c.enabled)
+
   const [name, setName] = useState('')
-  const [type, setType] = useState<ObjectType>('Enhancement')
-  const [module, setModule] = useState<ObjectModule>('SD')
-  const [complexity, setComplexity] = useState<ObjectComplexity>('Medium')
+  const [type, setType] = useState<ObjectType | ''>(enabledTypes[0]?.internal_key ?? '')
+  const [module, setModule] = useState(enabledModules[0]?.name ?? '')
+  const [complexity, setComplexity] = useState(enabledComplexities[0]?.name ?? '')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   async function handleSubmit() {
-    if (!name.trim()) return
+    if (!name.trim() || !type || !module || !complexity) return
     setSubmitting(true)
     setError(null)
     try {
@@ -183,6 +226,27 @@ function AddObjectForm({ projectId, onCreated }: { projectId: string; onCreated:
       setError(err instanceof ApiError ? err.message : 'Could not create the object.')
       setSubmitting(false)
     }
+  }
+
+  const blockedReason =
+    enabledTypes.length === 0
+      ? 'No object types are enabled in Project Brain yet.'
+      : enabledModules.length === 0
+        ? 'No modules are enabled in Project Brain yet.'
+        : enabledComplexities.length === 0
+          ? 'No complexity levels are enabled in Project Brain yet.'
+          : null
+
+  if (blockedReason) {
+    return (
+      <div className="mb-5 rounded-2xl border border-amber-border bg-amber-soft p-5 text-sm text-amber-text">
+        {blockedReason} Configure it in{' '}
+        <Link to={`/projects/${projectId}/brain`} className="font-semibold underline">
+          Project Brain
+        </Link>{' '}
+        before adding a custom object.
+      </div>
+    )
   }
 
   return (
@@ -199,28 +263,30 @@ function AddObjectForm({ projectId, onCreated }: { projectId: string; onCreated:
       <label className="flex flex-col gap-1.5">
         <span className="text-xs font-semibold text-slate-pill-text">Type</span>
         <select value={type} onChange={(e) => setType(e.target.value as ObjectType)} className="rounded-md border border-input-border px-3 py-2 text-sm">
-          {OBJECT_TYPES.map((t) => (
-            <option key={t}>{t}</option>
+          {enabledTypes.map((t) => (
+            <option key={t.internal_key} value={t.internal_key}>
+              {t.display_label}
+            </option>
           ))}
         </select>
       </label>
       <label className="flex flex-col gap-1.5">
         <span className="text-xs font-semibold text-slate-pill-text">Module</span>
-        <select value={module} onChange={(e) => setModule(e.target.value as ObjectModule)} className="rounded-md border border-input-border px-3 py-2 text-sm">
-          {OBJECT_MODULES.map((m) => (
-            <option key={m}>{m}</option>
+        <select value={module} onChange={(e) => setModule(e.target.value)} className="rounded-md border border-input-border px-3 py-2 text-sm">
+          {enabledModules.map((m) => (
+            <option key={m.id} value={m.name}>
+              {m.name}
+            </option>
           ))}
         </select>
       </label>
       <label className="flex flex-col gap-1.5">
         <span className="text-xs font-semibold text-slate-pill-text">Complexity</span>
-        <select
-          value={complexity}
-          onChange={(e) => setComplexity(e.target.value as ObjectComplexity)}
-          className="rounded-md border border-input-border px-3 py-2 text-sm"
-        >
-          {OBJECT_COMPLEXITIES.map((c) => (
-            <option key={c}>{c}</option>
+        <select value={complexity} onChange={(e) => setComplexity(e.target.value)} className="rounded-md border border-input-border px-3 py-2 text-sm">
+          {enabledComplexities.map((c) => (
+            <option key={c.id} value={c.name}>
+              {c.name}
+            </option>
           ))}
         </select>
       </label>

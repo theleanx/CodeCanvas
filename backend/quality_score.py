@@ -44,6 +44,7 @@ def compute_quality_score(sections: list[FSDSection]) -> QualityScore:
     total_checks = len(sections) + len(CROSS_CUTTING_CHECKS)
 
     red_items: list[str] = []
+    yellow_items: list[str] = []
     green_count = 0
 
     for section in sections:
@@ -51,11 +52,17 @@ def compute_quality_score(sections: list[FSDSection]) -> QualityScore:
             red_items.append(f"{section.title}: {section.needs_input_detail or 'no supporting input provided'}")
         elif section.status == "conflict":
             red_items.append(f"{section.title}: {section.conflict_detail or 'conflicting inputs, unresolved'}")
+        elif section.status == "ai_inferred":
+            # Usable content, but not grounded in the project's own
+            # documents -- a should-verify, not a must-fix-before-use.
+            yellow_items.append(
+                f"{section.title}: AI-inferred from general SAP knowledge, not the project's own documents — "
+                f"{section.ai_inferred_note or 'confirm or correct before relying on it'}"
+            )
         else:
             green_count += 1
 
-    all_grounded_text = " ".join(s.content for s in sections if s.status == "grounded")
-    yellow_items: list[str] = []
+    all_grounded_text = " ".join(s.content for s in sections if s.status in ("grounded", "ai_inferred"))
     for _key, message, pattern in CROSS_CUTTING_CHECKS:
         if pattern.search(all_grounded_text):
             green_count += 1

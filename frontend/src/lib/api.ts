@@ -2,6 +2,7 @@ import type {
   FsdDraftOut,
   FsdDraftSummary,
   ObjectCreate,
+  PipelineStage,
   Project,
   ProjectCreate,
   SourceDocumentIn,
@@ -93,6 +94,10 @@ export function getProject(projectId: string) {
   return request<Project>(`/api/projects/${projectId}`)
 }
 
+export function deleteProject(projectId: string) {
+  return request<void>(`/api/projects/${projectId}`, { method: 'DELETE' })
+}
+
 // --- objects ---
 
 export function listObjects(projectId: string) {
@@ -108,6 +113,15 @@ export function createObject(projectId: string, payload: ObjectCreate) {
 
 export function getObject(objectId: string) {
   return request<TrackedObject>(`/api/objects/${objectId}`)
+}
+
+export type PipelineStageKey = 'fsd' | 'feasibility' | 'tsd' | 'code_review' | 'unit_test' | 'code'
+
+export function setObjectStageStatus(objectId: string, stage: PipelineStageKey, status: PipelineStage) {
+  return request<TrackedObject>(`/api/objects/${objectId}/status`, {
+    method: 'PATCH',
+    body: JSON.stringify({ stage, status }),
+  })
 }
 
 // --- FSD drafts ---

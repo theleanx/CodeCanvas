@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Route, Routes, useParams } from 'react-router-dom'
 import Dashboard from './pages/Dashboard'
 import NewProject from './pages/NewProject'
+import ObjectDashboard from './pages/ObjectDashboard'
 import ProjectWorkspace from './pages/ProjectWorkspace'
 import FsdIntake from './pages/FsdIntake'
 import FsdReview from './pages/FsdReview'
@@ -13,7 +14,7 @@ import type { Project } from './lib/types'
 
 const PROJECT_NAV = (projectId: string) => [
   { label: 'Overview', to: `/projects/${projectId}/overview` },
-  { label: 'Objects', to: `/projects/${projectId}` },
+  { label: 'Custom Objects', to: `/projects/${projectId}` },
   { label: 'Project Brain', to: `/projects/${projectId}/brain` },
 ]
 
@@ -65,6 +66,7 @@ export default function App() {
                 path="/projects/:projectId/brain"
                 element={<ProjectScopedPlaceholder title="Project Brain" note="Project Brain document store isn't wired up yet." />}
               />
+              <Route path="/projects/:projectId/objects/:objectId" element={<ObjectDashboard />} />
               <Route path="/projects/:projectId/objects/:objectId/fsd/intake" element={<FsdIntake />} />
               <Route path="/projects/:projectId/objects/:objectId/fsd/review" element={<FsdReview />} />
               <Route path="*" element={<Placeholder title="Not found" note="That page doesn't exist." />} />

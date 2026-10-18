@@ -30,7 +30,7 @@ import type {
 
 const PROJECT_NAV = (projectId: string) => [
   { label: 'Overview', to: `/projects/${projectId}/overview` },
-  { label: 'Objects', to: `/projects/${projectId}` },
+  { label: 'Custom Objects', to: `/projects/${projectId}` },
   { label: 'Project Brain', to: `/projects/${projectId}/brain` },
 ]
 
@@ -58,6 +58,7 @@ export default function FsdReview() {
   const [yellowOpen, setYellowOpen] = useState(false)
   const [redOpen, setRedOpen] = useState(false)
   const [approvalError, setApprovalError] = useState<string | null>(null)
+  const [contextQueue, setContextQueue] = useState<Record<string, { title: string; text: string }>>({})
 
   const refreshVersions = useCallback(() => {
     if (!objectId) return
@@ -125,24 +126,42 @@ export default function FsdReview() {
 
   // Adding context to a flagged section doesn't patch that section alone --
   // the agent drafts the whole FSD holistically from one fact ledger, so
-  // there's no per-section dependency graph to walk. Instead, the typed
-  // context becomes a new source document and the full draft is
-  // regenerated against the enriched ledger as a new version. That's what
-  // correctly "cascades": any other section whose grounding touches the
-  // same fact gets re-drafted too, not just the one the user clicked.
-  const regenerateWithContext = useCallback(
-    (sectionKey: string, sectionTitle: string, contextText: string) => {
-      if (run.phase !== 'done') return
-      const newSource: SourceDocumentIn = {
-        source_id: `clarification_${sectionKey}_${Date.now()}`,
-        label: `Added context — ${sectionTitle}`,
-        doc_type: 'Clarification',
-        text: contextText,
-      }
-      runGenerate([...run.draft.sources, newSource], `Added context for "${sectionTitle}"`)
-    },
-    [run, runGenerate],
-  )
+  // there's no per-section dependency graph to walk, which means there's
+  // no reliable way to predict "only section Y will change" either. So
+  // instead of regenerating on every single add, context added to any
+  // number of flagged sections is queued here, and one regenerate call at
+  // the end turns all of it into new source documents and redrafts the
+  // whole FSD as one new version -- any other section grounded in the same
+  // facts gets re-drafted too, not just the ones that were queued.
+  const queueContext = useCallback((sectionKey: string, sectionTitle: string, text: string) => {
+    setContextQueue((prev) => ({ ...prev, [sectionKey]: { title: sectionTitle, text } }))
+  }, [])
+
+  const removeQueuedContext = useCallback((sectionKey: string) => {
+    setContextQueue((prev) => {
+      const next = { ...prev }
+      delete next[sectionKey]
+      return next
+    })
+  }, [])
+
+  const regenerateQueued = useCallback(() => {
+    if (run.phase !== 'done') return
+    const entries = Object.entries(contextQueue)
+    if (entries.length === 0) return
+    const newSources: SourceDocumentIn[] = entries.map(([sectionKey, { title, text }]) => ({
+      source_id: `clarification_${sectionKey}_${Date.now()}`,
+      label: `Added context — ${title}`,
+      doc_type: 'Clarification',
+      text,
+    }))
+    const note =
+      entries.length === 1
+        ? `Added context for "${entries[0][1].title}"`
+        : `Added context for ${entries.length} sections (${entries.map(([, v]) => v.title).join(', ')})`
+    setContextQueue({})
+    runGenerate([...run.draft.sources, ...newSources], note)
+  }, [run, runGenerate, contextQueue])
 
   async function viewVersion(draftId: string) {
     setRun({ phase: 'loading' })
@@ -225,10 +244,16 @@ export default function FsdReview() {
         </div>
         <div className="flex gap-2.5">
           <Link
+            to={`/projects/${project.id}/objects/${object.id}`}
+            className="whitespace-nowrap rounded-lg border border-input-border bg-white px-4 py-2.5 text-[13px] font-semibold text-slate-pill-text no-underline"
+          >
+            ← Object Dashboard
+          </Link>
+          <Link
             to={`/projects/${project.id}/objects/${object.id}/fsd/intake`}
             className="whitespace-nowrap rounded-lg border border-input-border bg-white px-4 py-2.5 text-[13px] font-semibold text-slate-pill-text no-underline"
           >
-            ← Edit inputs
+            Edit inputs
           </Link>
           {run.phase === 'done' && (
             <button
@@ -269,6 +294,32 @@ export default function FsdReview() {
             onToggleRed={() => setRedOpen((v) => !v)}
           />
 
+          {Object.keys(contextQueue).length > 0 && (
+            <div className="sticky top-3 z-10 mb-6 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-accent bg-accent-soft px-5 py-3.5">
+              <div className="text-[13px] font-semibold text-accent">
+                {Object.keys(contextQueue).length} section{Object.keys(contextQueue).length > 1 ? 's' : ''} queued for
+                context — regenerating redrafts the whole FSD, so any other section grounded in the same facts gets
+                updated too, not just these.
+              </div>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setContextQueue({})}
+                  className="whitespace-nowrap rounded-md border border-accent bg-white px-3.5 py-2 text-[12.5px] font-semibold text-accent"
+                >
+                  Clear queue
+                </button>
+                <button
+                  type="button"
+                  onClick={regenerateQueued}
+                  className="whitespace-nowrap rounded-md bg-accent px-4 py-2 text-[12.5px] font-bold text-white"
+                >
+                  Regenerate {Object.keys(contextQueue).length === 1 ? 'this section' : 'all queued sections'}
+                </button>
+              </div>
+            </div>
+          )}
+
           <div className="flex flex-wrap items-start gap-6">
             <div className="flex min-w-0 flex-[2_1_580px] flex-col gap-5 rounded-2xl border border-card-border bg-white p-9">
               {run.draft.document_identification && <DocumentIdentificationBlock info={run.draft.document_identification} />}
@@ -279,7 +330,9 @@ export default function FsdReview() {
                   key={s.key}
                   index={i + 1}
                   section={s}
-                  onAddContext={(text) => regenerateWithContext(s.key, s.title, text)}
+                  queuedText={contextQueue[s.key]?.text ?? null}
+                  onQueueContext={(text) => queueContext(s.key, s.title, text)}
+                  onRemoveQueuedContext={() => removeQueuedContext(s.key)}
                 />
               ))}
             </div>
@@ -538,17 +591,34 @@ function ReviewSignoffBlock({ rows }: { rows: ReviewSignoffRow[] }) {
   )
 }
 
+function SectionImages({ images }: { images: Record<string, string> }) {
+  return (
+    <>
+      {Object.entries(images ?? {}).map(([label, b64]) => (
+        <figure key={label} className="mt-3 rounded-lg border border-card-border bg-app-bg/60 p-3">
+          <img src={`data:image/png;base64,${b64}`} alt={label} className="mx-auto block max-w-full rounded-md" />
+          <figcaption className="mt-2 text-center text-[11.5px] font-semibold text-muted">{label}</figcaption>
+        </figure>
+      ))}
+    </>
+  )
+}
+
 function SectionBlock({
   index,
   section,
-  onAddContext,
+  queuedText,
+  onQueueContext,
+  onRemoveQueuedContext,
 }: {
   index: number
   section: FSDSection
-  onAddContext: (text: string) => void
+  queuedText: string | null
+  onQueueContext: (text: string) => void
+  onRemoveQueuedContext: () => void
 }) {
   const [open, setOpen] = useState(false)
-  const [text, setText] = useState('')
+  const [text, setText] = useState(queuedText ?? '')
 
   if (section.status === 'grounded') {
     return (
@@ -557,12 +627,39 @@ function SectionBlock({
           {index}. {section.title}
         </div>
         <div className="text-[13.5px] leading-relaxed text-[#333d4d]">{section.content}</div>
-        {Object.entries(section.images ?? {}).map(([label, b64]) => (
-          <figure key={label} className="mt-3 rounded-lg border border-card-border bg-app-bg/60 p-3">
-            <img src={`data:image/png;base64,${b64}`} alt={label} className="mx-auto block max-w-full rounded-md" />
-            <figcaption className="mt-2 text-center text-[11.5px] font-semibold text-muted">{label}</figcaption>
-          </figure>
-        ))}
+        <SectionImages images={section.images} />
+      </div>
+    )
+  }
+
+  if (section.status === 'ai_inferred') {
+    return (
+      <div className="rounded-r-lg border-l-[3px] border-l-accent bg-accent-soft/60 px-4.5 py-3.5">
+        <div className="mb-1.5 flex items-center justify-between">
+          <div className="font-heading text-[15px] font-extrabold">
+            {index}. {section.title}
+          </div>
+          <span className="whitespace-nowrap rounded-full bg-accent-soft px-2.5 py-0.5 text-[11px] font-bold text-accent">
+            AI-inferred — not grounded
+          </span>
+        </div>
+        <div className="text-[13.5px] leading-relaxed text-[#333d4d]">{section.content}</div>
+        <SectionImages images={section.images} />
+        <div className="mt-2.5 rounded-md bg-white/70 px-3 py-2 text-[12px] text-accent">
+          Based on general SAP knowledge, not your project's own documents — {section.ai_inferred_note || 'confirm or correct this before relying on it.'}
+        </div>
+        <QueuedContextControl
+          section={section}
+          queuedText={queuedText}
+          open={open}
+          setOpen={setOpen}
+          text={text}
+          setText={setText}
+          onQueueContext={onQueueContext}
+          onRemoveQueuedContext={onRemoveQueuedContext}
+          toneClass="border-accent bg-white text-accent"
+          placeholder="Confirm this is correct, or supply the real project-specific detail..."
+        />
       </div>
     )
   }
@@ -571,14 +668,6 @@ function SectionBlock({
   const tone = isConflict
     ? { border: 'border-l-red', bg: 'bg-red-soft', badgeBg: 'bg-red-soft', badgeText: 'text-red-text', text: 'text-red-text' }
     : { border: 'border-l-amber-dark', bg: 'bg-amber-soft-2', badgeBg: 'bg-amber-soft', badgeText: 'text-amber', text: 'text-amber-text' }
-
-  function submit() {
-    const trimmed = text.trim()
-    if (!trimmed) return
-    onAddContext(trimmed)
-    setOpen(false)
-    setText('')
-  }
 
   return (
     <div className={`rounded-r-lg border-l-[3px] ${tone.border} ${tone.bg} px-4.5 py-3.5`}>
@@ -594,57 +683,114 @@ function SectionBlock({
         {isConflict ? section.conflict_detail : section.needs_input_detail}
       </div>
 
-      {!open && (
+      <QueuedContextControl
+        section={section}
+        queuedText={queuedText}
+        open={open}
+        setOpen={setOpen}
+        text={text}
+        setText={setText}
+        onQueueContext={onQueueContext}
+        onRemoveQueuedContext={onRemoveQueuedContext}
+        toneClass={isConflict ? 'border-red-border bg-white text-red-text' : 'border-amber-border bg-white text-amber-text'}
+        placeholder={
+          isConflict
+            ? 'Resolve the conflict — which input is correct, or what should override it?'
+            : 'Add the missing detail this section needs...'
+        }
+      />
+    </div>
+  )
+}
+
+// Shared by the needs_input/conflict/ai_inferred branches: queues context
+// for this one section (doesn't regenerate by itself — the sticky bar
+// above the section list regenerates everything queued across the whole
+// document in one call, see FsdReview's regenerateQueued).
+function QueuedContextControl({
+  queuedText,
+  open,
+  setOpen,
+  text,
+  setText,
+  onQueueContext,
+  onRemoveQueuedContext,
+  toneClass,
+  placeholder,
+}: {
+  section: FSDSection
+  queuedText: string | null
+  open: boolean
+  setOpen: (v: boolean) => void
+  text: string
+  setText: (v: string) => void
+  onQueueContext: (text: string) => void
+  onRemoveQueuedContext: () => void
+  toneClass: string
+  placeholder: string
+}) {
+  function submit() {
+    const trimmed = text.trim()
+    if (!trimmed) return
+    onQueueContext(trimmed)
+    setOpen(false)
+  }
+
+  if (queuedText && !open) {
+    return (
+      <div className="mt-2.5 flex items-center gap-2">
+        <span className="rounded-full bg-white px-2.5 py-1 text-[11px] font-bold text-accent">✓ Context queued</span>
+        <button type="button" onClick={() => setOpen(true)} className="text-[12px] font-semibold text-slate-pill-text underline">
+          Edit
+        </button>
+        <button type="button" onClick={onRemoveQueuedContext} className="text-[12px] font-semibold text-red-text underline">
+          Remove
+        </button>
+      </div>
+    )
+  }
+
+  if (!open) {
+    return (
+      <button type="button" onClick={() => setOpen(true)} className={`mt-2.5 rounded-md border px-3 py-1.5 text-[12px] font-bold ${toneClass}`}>
+        + Add context
+      </button>
+    )
+  }
+
+  return (
+    <div className="mt-3 flex flex-col gap-2 border-t border-dashed border-divider pt-3">
+      <textarea
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        autoFocus
+        placeholder={placeholder}
+        className="min-h-[80px] w-full resize-y rounded-lg border border-input-border bg-white p-2.5 text-[13px]"
+      />
+      <div className="text-[11.5px] text-faint">
+        Queued, not regenerated yet — add context to as many sections as you like, then use "Regenerate" in the bar
+        above to redraft the whole FSD once, against all of it together.
+      </div>
+      <div className="flex gap-2">
         <button
           type="button"
-          onClick={() => setOpen(true)}
-          className={`mt-2.5 rounded-md border px-3 py-1.5 text-[12px] font-bold ${
-            isConflict ? 'border-red-border bg-white text-red-text' : 'border-amber-border bg-white text-amber-text'
-          }`}
+          onClick={submit}
+          disabled={!text.trim()}
+          className="rounded-md bg-accent px-3.5 py-1.5 text-[12.5px] font-bold text-white disabled:cursor-not-allowed disabled:opacity-40"
         >
-          + Add context
+          {queuedText ? 'Update queued context' : 'Queue this context'}
         </button>
-      )}
-
-      {open && (
-        <div className="mt-3 flex flex-col gap-2 border-t border-dashed border-divider pt-3">
-          <textarea
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            autoFocus
-            placeholder={
-              isConflict
-                ? 'Resolve the conflict — which input is correct, or what should override it?'
-                : 'Add the missing detail this section needs...'
-            }
-            className="min-h-[80px] w-full resize-y rounded-lg border border-input-border bg-white p-2.5 text-[13px]"
-          />
-          <div className="text-[11.5px] text-faint">
-            This becomes a new source and regenerates the full draft as a new version — any other section grounded in
-            the same facts gets re-drafted too, not just this one.
-          </div>
-          <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={submit}
-              disabled={!text.trim()}
-              className="rounded-md bg-accent px-3.5 py-1.5 text-[12.5px] font-bold text-white disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              Regenerate with this context
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setOpen(false)
-                setText('')
-              }}
-              className="rounded-md border border-input-border bg-white px-3.5 py-1.5 text-[12.5px] font-semibold text-slate-pill-text"
-            >
-              Cancel
-            </button>
-          </div>
-        </div>
-      )}
+        <button
+          type="button"
+          onClick={() => {
+            setOpen(false)
+            setText(queuedText ?? '')
+          }}
+          className="rounded-md border border-input-border bg-white px-3.5 py-1.5 text-[12.5px] font-semibold text-slate-pill-text"
+        >
+          Cancel
+        </button>
+      </div>
     </div>
   )
 }
@@ -673,8 +819,15 @@ function CoverageCard({ draft }: { draft: FsdDraftOut }) {
         <div className="mt-1 flex flex-col gap-1.5 text-[12.5px]">
           {flagged.map((s) => (
             <div key={s.key} className="flex items-start gap-1.5">
-              <span className={s.status === 'conflict' ? 'text-red-text' : 'text-amber'}>●</span>
-              {s.title} — {s.status === 'conflict' ? 'conflicting inputs' : 'no input provided'}
+              <span
+                className={
+                  s.status === 'conflict' ? 'text-red-text' : s.status === 'ai_inferred' ? 'text-accent' : 'text-amber'
+                }
+              >
+                ●
+              </span>
+              {s.title} —{' '}
+              {s.status === 'conflict' ? 'conflicting inputs' : s.status === 'ai_inferred' ? 'AI-inferred, not grounded' : 'no input provided'}
             </div>
           ))}
         </div>

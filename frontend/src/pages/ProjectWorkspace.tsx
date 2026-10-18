@@ -4,11 +4,11 @@ import { Link, useParams } from 'react-router-dom'
 import AppShell from '../components/AppShell'
 import { PipelinePill, ComplexityPill } from '../components/StatusPill'
 import { ApiError, createObject, getProject, listObjects } from '../lib/api'
-import type { ObjectComplexity, ObjectModule, ObjectType, Project, TrackedObject } from '../lib/types'
+import type { ObjectComplexity, ObjectModule, ObjectType, PipelineStage, Project, TrackedObject } from '../lib/types'
 
 const PROJECT_NAV = (projectId: string) => [
   { label: 'Overview', to: `/projects/${projectId}/overview` },
-  { label: 'Objects', to: `/projects/${projectId}` },
+  { label: 'Custom Objects', to: `/projects/${projectId}` },
   { label: 'Project Brain', to: `/projects/${projectId}/brain` },
 ]
 
@@ -83,7 +83,7 @@ export default function ProjectWorkspace() {
           onClick={() => setShowAddForm((v) => !v)}
           className="whitespace-nowrap rounded-lg bg-accent px-5 py-3 text-sm font-semibold text-white"
         >
-          {showAddForm ? 'Cancel' : '+ New Object'}
+          {showAddForm ? 'Cancel' : '+ New Custom Object'}
         </button>
       </div>
 
@@ -118,7 +118,7 @@ export default function ProjectWorkspace() {
               <tr key={obj.id} className="border-b border-divider last:border-0 hover:bg-app-bg/60">
                 <td className="px-4 py-3 font-medium">
                   <Link
-                    to={`/projects/${project.id}/objects/${obj.id}/fsd/${obj.latest_fsd_version ? 'review' : 'intake'}`}
+                    to={`/projects/${project.id}/objects/${obj.id}`}
                     className="font-semibold text-ink no-underline hover:text-accent"
                   >
                     {obj.name}
@@ -130,22 +130,22 @@ export default function ProjectWorkspace() {
                   <ComplexityPill level={obj.complexity} />
                 </td>
                 <td className="px-4 py-3">
-                  <PipelinePill stage={obj.fsd_status} />
+                  <StagePillLink projectId={project.id} objectId={obj.id} tab="fsd" stage={obj.fsd_status} />
                 </td>
                 <td className="px-4 py-3">
-                  <PipelinePill stage={obj.feasibility_status} />
+                  <StagePillLink projectId={project.id} objectId={obj.id} tab="feasibility" stage={obj.feasibility_status} />
                 </td>
                 <td className="px-4 py-3">
-                  <PipelinePill stage={obj.tsd_status} />
+                  <StagePillLink projectId={project.id} objectId={obj.id} tab="tsd" stage={obj.tsd_status} />
                 </td>
                 <td className="px-4 py-3">
-                  <PipelinePill stage={obj.code_review_status} />
+                  <StagePillLink projectId={project.id} objectId={obj.id} tab="code_review" stage={obj.code_review_status} />
                 </td>
                 <td className="px-4 py-3">
-                  <PipelinePill stage={obj.unit_test_status} />
+                  <StagePillLink projectId={project.id} objectId={obj.id} tab="unit_test" stage={obj.unit_test_status} />
                 </td>
                 <td className="px-4 py-3">
-                  <PipelinePill stage={obj.code_status} />
+                  <StagePillLink projectId={project.id} objectId={obj.id} tab="code" stage={obj.code_status} />
                 </td>
               </tr>
             ))}
@@ -153,7 +153,7 @@ export default function ProjectWorkspace() {
             {objects.length === 0 && (
               <tr>
                 <td colSpan={10} className="px-4 py-8 text-center text-sm text-muted">
-                  No objects yet. Add one to start an FSD.
+                  No custom objects yet. Add one to start an FSD.
                 </td>
               </tr>
             )}
@@ -239,4 +239,24 @@ function AddObjectForm({ projectId, onCreated }: { projectId: string; onCreated:
 
 function Th({ children }: { children: ReactNode }) {
   return <th className="px-4 py-3 font-semibold">{children}</th>
+}
+
+// Each pipeline-stage pill jumps straight to that stage's tab on the
+// object's dashboard, instead of only the object name going anywhere.
+function StagePillLink({
+  projectId,
+  objectId,
+  tab,
+  stage,
+}: {
+  projectId: string
+  objectId: string
+  tab: string
+  stage: PipelineStage
+}) {
+  return (
+    <Link to={`/projects/${projectId}/objects/${objectId}?tab=${tab}`} className="no-underline">
+      <PipelinePill stage={stage} />
+    </Link>
+  )
 }

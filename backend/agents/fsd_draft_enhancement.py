@@ -21,10 +21,10 @@ from __future__ import annotations
 
 import anthropic
 
-from backend.config import ANTHROPIC_API_KEY, AGENT_MODEL, MAX_TOKENS_DRAFT
+from backend.config import ANTHROPIC_API_KEY, AGENT_MODEL, MAX_TOKENS_ENHANCEMENT_DRAFT
 from backend.diagrams import render_flow_diagram, render_wireframe
 from backend.schemas import LedgerEntry, FSDSection, ENHANCEMENT_TEMPLATE_SECTIONS, ENHANCEMENT_DIAGRAM_SECTION_KEY
-from backend.agents.json_utils import extract_json, format_ledger_block
+from backend.agents.json_utils import check_not_truncated, extract_json, format_ledger_block
 
 SYSTEM_PROMPT = """You are the Draft Generation step of an SAP functional-spec \
 drafting pipeline, writing a development-ready Functional Specification \
@@ -34,13 +34,25 @@ you write every section of the FSD using those facts, plus reasonable, \
 clearly-labeled assumptions where the ledger is thin but not empty.
 
 Rules, strictly:
-1. A section is "needs_input" ONLY when the ledger has NOTHING at all \
-bearing on it -- zero relevant entries. In that case set status to \
-"needs_input", leave content empty, and write a specific needs_input_detail.
-2. Otherwise, write the section. If some sub-detail isn't nailed down by the \
-ledger, make the single most reasonable assumption for it, keep writing, \
-and separately log that assumption (plainly, one line each) in the content \
-of the "assumptions_constraints" section -- never leave the section itself \
+1. When the ledger has NOTHING at all bearing on a section -- zero relevant \
+entries -- do not stop at needs_input by default. First try to write the \
+section from general SAP domain knowledge of how this kind of \
+Enhancement is normally built (standard patterns, typical fields, usual \
+validations for this kind of object). If you can produce a genuinely \
+useful, SAP-accurate section this way, set status to "ai_inferred", write \
+the content, and set ai_inferred_note to one or two sentences naming what \
+you inferred and that it must be confirmed against the project's actual \
+requirements -- never present this content as if it were grounded, and \
+never put an entry_id in grounded_in for it. Only fall back to \
+"needs_input" (content empty, needs_input_detail specific) when the gap is \
+genuinely business-specific and nothing in general SAP knowledge could \
+fill it usefully (e.g. this customer's exact numbering scheme, their org's \
+specific approval chain, a business decision only they can make).
+2. Otherwise (the ledger has SOME relevant entries), write the section \
+grounded in those. If some sub-detail isn't nailed down by the ledger, \
+make the single most reasonable assumption for it, keep writing, and \
+separately log that assumption (plainly, one line each) in the content of \
+the "assumptions_constraints" section -- never leave the section itself \
 half-written because of a missing detail that isn't the section's core ask.
 3. Never invent real SAP technical facts: table names, structure names, \
 BAdI/user-exit/enhancement-spot names, authorization objects, program \
@@ -92,8 +104,9 @@ provided input.") and its status is grounded.
 
 Output ONLY a JSON array of exactly twelve objects, no prose before or \
 after, no markdown fence. Each element:
-{"key": str, "status": "grounded"|"needs_input"|"conflict", "content": str, \
+{"key": str, "status": "grounded"|"needs_input"|"conflict"|"ai_inferred", "content": str, \
 "grounded_in": [str], "needs_input_detail": str|null, "conflict_detail": str|null, \
+"ai_inferred_note": str|null (set only when status == "ai_inferred"), \
 "flow_steps": [{"actor": str|null, "label": str}]|null (ONLY on "process_flow"), \
 "wireframe": {"screen_title": str, "fields": [str]}|null (ONLY on "process_flow")}
 """
@@ -104,10 +117,11 @@ def generate_enhancement_fsd_draft(ledger: list[LedgerEntry]) -> list[FSDSection
 
     response = client.messages.create(
         model=AGENT_MODEL,
-        max_tokens=MAX_TOKENS_DRAFT,
+        max_tokens=MAX_TOKENS_ENHANCEMENT_DRAFT,
         system=SYSTEM_PROMPT,
         messages=[{"role": "user", "content": format_ledger_block(ledger)}],
     )
+    check_not_truncated(response.stop_reason, MAX_TOKENS_ENHANCEMENT_DRAFT)
 
     raw_text = "".join(block.text for block in response.content if block.type == "text")
     items = extract_json(raw_text)
@@ -144,9 +158,13 @@ def generate_enhancement_fsd_draft(ledger: list[LedgerEntry]) -> list[FSDSection
                 title=title_by_key.get(key, key),
                 status=item["status"],
                 content=item.get("content", ""),
-                grounded_in=grounded_in,
+                # ai_inferred content is explicitly not ledger-grounded --
+                # drop any entry_ids a model attached anyway rather than
+                # trusting them, same defensive posture as everywhere else.
+                grounded_in=grounded_in if item["status"] == "grounded" else [],
                 needs_input_detail=item.get("needs_input_detail"),
                 conflict_detail=item.get("conflict_detail"),
+                ai_inferred_note=item.get("ai_inferred_note") if item["status"] == "ai_inferred" else None,
                 images=images,
             )
         )

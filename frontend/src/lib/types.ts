@@ -2,7 +2,7 @@
 // sync by hand -- there are only a handful of shapes and a shared-schema
 // generator would be overkill at this stage.
 
-export type FSDSectionStatus = 'grounded' | 'needs_input' | 'conflict'
+export type FSDSectionStatus = 'grounded' | 'needs_input' | 'conflict' | 'ai_inferred'
 
 export interface SourceDocumentIn {
   source_id: string
@@ -27,6 +27,7 @@ export interface FSDSection {
   grounded_in: string[]
   needs_input_detail: string | null
   conflict_detail: string | null
+  ai_inferred_note: string | null
   images: Record<string, string>
 }
 

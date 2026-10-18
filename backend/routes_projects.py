@@ -28,6 +28,7 @@ from backend.api_schemas import (
     FsdGenerateRequest,
     ObjectCreate,
     ObjectOut,
+    ObjectStatusPatch,
     ProjectCreate,
     ProjectOut,
     ApprovalState,
@@ -167,6 +168,20 @@ def get_project(project_id: str, db: Session = Depends(get_db)):
     return _project_out(db, project)
 
 
+@router.delete("/projects/{project_id}", status_code=204)
+def delete_project(project_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    # Destructive and irreversible (cascades to every object and FSD draft
+    # in it), so restricted to the two senior roles -- a module_lead or
+    # contributor can't take this action, but a solution_architect (the
+    # role driving this app day to day) isn't locked out of a feature they
+    # explicitly asked for just because they aren't also seeded as admin.
+    if user.role not in ("admin", "solution_architect"):
+        raise HTTPException(status_code=403, detail="Only an admin or solution architect can delete a project.")
+    project = _get_project_or_404(db, project_id)
+    db.delete(project)
+    db.commit()
+
+
 @router.get("/projects/{project_id}/objects", response_model=list[ObjectOut])
 def list_objects(project_id: str, db: Session = Depends(get_db)):
     _get_project_or_404(db, project_id)
@@ -194,6 +209,30 @@ def create_object(project_id: str, payload: ObjectCreate, db: Session = Depends(
 @router.get("/objects/{object_id}", response_model=ObjectOut)
 def get_object(object_id: str, db: Session = Depends(get_db)):
     obj = _get_object_or_404(db, object_id)
+    return _object_out(db, obj)
+
+
+# Maps the API's stage name to the actual column on TrackedObject.
+_STAGE_COLUMN = {
+    "fsd": "fsd_status",
+    "feasibility": "feasibility_status",
+    "tsd": "tsd_status",
+    "code_review": "code_review_status",
+    "unit_test": "unit_test_status",
+    "code": "code_status",
+}
+
+
+@router.patch("/objects/{object_id}/status", response_model=ObjectOut)
+def set_object_stage_status(object_id: str, payload: ObjectStatusPatch, db: Session = Depends(get_db)):
+    obj = _get_object_or_404(db, object_id)
+    # A manual override (e.g. putting FSD On Hold) is a deliberate choice,
+    # so it sticks -- the automatic status moves elsewhere in this file
+    # (on generate, on approval) only happen as a side effect of someone
+    # actually doing something on that stage, not of this endpoint.
+    setattr(obj, _STAGE_COLUMN[payload.stage], payload.status)
+    db.commit()
+    db.refresh(obj)
     return _object_out(db, obj)
 
 
@@ -329,10 +368,17 @@ def set_approval(
 
     obj = _get_object_or_404(db, draft.object_id)
     # Only this draft's own object, and only when this IS the latest version,
-    # should approval state move the pipeline status.
+    # should approval state move the pipeline status. A full approval is a
+    # real, meaningful event (the stage is genuinely done), so it always
+    # wins. Withdrawing an approval without fully approving, though, follows
+    # the same rule as generating a new draft: don't regress a manually set
+    # Blocked/On Hold just because of this one action.
     latest_version = db.query(func.max(FsdDraft.version)).filter(FsdDraft.object_id == obj.id).scalar()
     if draft.version == latest_version:
-        obj.fsd_status = "Complete" if fully_approved else "In Progress"
+        if fully_approved:
+            obj.fsd_status = "Complete"
+        elif obj.fsd_status in ("Not Started", "Complete"):
+            obj.fsd_status = "In Progress"
 
     db.commit()
     db.refresh(draft)

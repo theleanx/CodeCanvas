@@ -79,6 +79,14 @@ class ObjectCreate(BaseModel):
     complexity: ObjectComplexity = "Medium"
 
 
+PipelineStageKey = Literal["fsd", "feasibility", "tsd", "code_review", "unit_test", "code"]
+
+
+class ObjectStatusPatch(BaseModel):
+    stage: PipelineStageKey
+    status: PipelineStage
+
+
 class ObjectOut(BaseModel):
     id: str
     project_id: str

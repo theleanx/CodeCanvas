@@ -14,7 +14,7 @@ const DOC_TYPES = [
 
 const PROJECT_NAV = (projectId: string) => [
   { label: 'Overview', to: `/projects/${projectId}/overview` },
-  { label: 'Objects', to: `/projects/${projectId}` },
+  { label: 'Custom Objects', to: `/projects/${projectId}` },
   { label: 'Project Brain', to: `/projects/${projectId}/brain` },
 ]
 
@@ -160,11 +160,19 @@ export default function FsdIntake() {
         / <span className="text-ink">{object.name}</span>
       </div>
 
-      <div className="mb-5 flex items-center gap-2.5">
-        <h1 className="m-0 font-heading text-2xl font-extrabold">{object.name}</h1>
-        <span className="rounded-full bg-slate-pill-bg px-2.5 py-1 text-xs font-bold text-slate-pill-text">
-          {object.type}
-        </span>
+      <div className="mb-5 flex flex-wrap items-center justify-between gap-2.5">
+        <div className="flex items-center gap-2.5">
+          <h1 className="m-0 font-heading text-2xl font-extrabold">{object.name}</h1>
+          <span className="rounded-full bg-slate-pill-bg px-2.5 py-1 text-xs font-bold text-slate-pill-text">
+            {object.type}
+          </span>
+        </div>
+        <Link
+          to={`/projects/${project.id}/objects/${object.id}`}
+          className="whitespace-nowrap rounded-lg border border-input-border bg-white px-4 py-2.5 text-[13px] font-semibold text-slate-pill-text no-underline"
+        >
+          ← Object Dashboard
+        </Link>
       </div>
 
       <PipelineSteps current="FSD Creation" />

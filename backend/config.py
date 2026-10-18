@@ -21,6 +21,13 @@ AGENT_MODEL = os.environ.get("CODECANVAS_AGENT_MODEL", "claude-sonnet-5")
 
 MAX_TOKENS_LEDGER = 4096
 MAX_TOKENS_DRAFT = 8192
+# The Enhancement template drafts twelve richer sections (plus structured
+# flow_steps/wireframe data for the diagrams) in one JSON response -- 8192
+# wasn't enough headroom and silently truncated mid-string on longer inputs,
+# which surfaced to the user as a cryptic "Unterminated string" JSON error
+# instead of a clear one. Doubled, with an explicit truncation check below
+# as a second line of defense if a draft is ever still big enough to hit it.
+MAX_TOKENS_ENHANCEMENT_DRAFT = 16000
 
 # --- Export / push integrations ---------------------------------------------
 # Both are optional -- the download endpoints (Markdown/Word/PDF) need none

@@ -14,10 +14,15 @@ on this shape, so it's kept deliberately small and literal:
                         architecture doc -- the thing that makes grounding
                         checkable instead of just asserted.
 
-    FSDSection       -- one section of the generated FSD, always in one of
-                        three states: grounded, needs_input, or conflict.
-                        There is no fourth state where content is invented
-                        without ledger support -- that's the whole point.
+    FSDSection       -- one section of the generated FSD, in one of four
+                        states: grounded, needs_input, conflict, or (the
+                        Enhancement template only) ai_inferred -- content
+                        filled from the model's general SAP knowledge
+                        because the ledger had nothing on it, always kept
+                        visibly distinct from grounded content rather than
+                        silently presented as such. The generic template
+                        never uses ai_inferred: a gap there is still only
+                        ever needs_input or conflict, never invented.
 """
 
 from __future__ import annotations
@@ -41,7 +46,7 @@ class LedgerEntry(BaseModel):
     topic_hint: Optional[str] = Field(None, description="Which FSD section this most likely belongs to, per the model's own read")
 
 
-FSDSectionStatus = Literal["grounded", "needs_input", "conflict"]
+FSDSectionStatus = Literal["grounded", "needs_input", "conflict", "ai_inferred"]
 
 FSD_TEMPLATE_SECTIONS: list[dict] = [
     {"key": "business_background", "title": "Business Background"},
@@ -100,6 +105,12 @@ class FSDSection(BaseModel):
     grounded_in: list[str] = Field(default_factory=list, description="entry_ids from the ledger this section draws on")
     needs_input_detail: Optional[str] = Field(None, description="What's missing, when status == needs_input")
     conflict_detail: Optional[str] = Field(None, description="Both positions and their sources, when status == conflict")
+    ai_inferred_note: Optional[str] = Field(
+        None,
+        description="Set only when status == ai_inferred: what was inferred from general SAP knowledge "
+        "rather than the project's own documents, and why -- shown to the user as a 'confirm or correct "
+        "this' prompt, never presented as if it were grounded.",
+    )
     images: dict[str, str] = Field(
         default_factory=dict,
         description="Rendered diagrams for this section, as {label: base64-png-bytes}. Only ever "

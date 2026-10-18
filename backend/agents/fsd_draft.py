@@ -13,7 +13,7 @@ import anthropic
 
 from backend.config import ANTHROPIC_API_KEY, AGENT_MODEL, MAX_TOKENS_DRAFT
 from backend.schemas import LedgerEntry, FSDSection, FSD_TEMPLATE_SECTIONS
-from backend.agents.json_utils import extract_json, format_ledger_block
+from backend.agents.json_utils import check_not_truncated, extract_json, format_ledger_block
 
 SYSTEM_PROMPT = """You are the Draft Generation step of an SAP functional-spec \
 drafting pipeline. You are given an Extraction Ledger -- a list of facts, each \
@@ -56,6 +56,7 @@ def generate_fsd_draft(ledger: list[LedgerEntry]) -> list[FSDSection]:
         messages=[{"role": "user", "content": format_ledger_block(ledger)}],
     )
 
+    check_not_truncated(response.stop_reason, MAX_TOKENS_DRAFT)
     raw_text = "".join(block.text for block in response.content if block.type == "text")
     items = extract_json(raw_text)
 

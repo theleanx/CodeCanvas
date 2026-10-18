@@ -17,7 +17,7 @@ import anthropic
 
 from backend.config import ANTHROPIC_API_KEY, AGENT_MODEL, MAX_TOKENS_LEDGER
 from backend.schemas import SourceDocument, LedgerEntry
-from backend.agents.json_utils import extract_json
+from backend.agents.json_utils import check_not_truncated, extract_json
 
 SYSTEM_PROMPT = """You are the Extraction Ledger step of an SAP functional-spec \
 drafting pipeline. You read one or more source documents and extract atomic \
@@ -63,6 +63,7 @@ def build_extraction_ledger(sources: list[SourceDocument]) -> list[LedgerEntry]:
         messages=[{"role": "user", "content": sources_block}],
     )
 
+    check_not_truncated(response.stop_reason, MAX_TOKENS_LEDGER)
     raw_text = "".join(block.text for block in response.content if block.type == "text")
     items = extract_json(raw_text)
 

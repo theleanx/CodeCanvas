@@ -80,12 +80,15 @@ def build_validation_table(sections: list[dict]) -> list[dict]:
     all_grounded_text = " ".join(s["content"] for s in sections if s["status"] == "grounded")
 
     def grounded(key: str) -> bool:
+        # "Present and usable" for this checklist's purposes -- ai_inferred
+        # content still satisfies "this section isn't empty", it's just
+        # flagged separately (as a yellow item) for the user to confirm.
         s = by_key.get(key)
-        return bool(s and s["status"] == "grounded" and s["content"].strip())
+        return bool(s and s["status"] in ("grounded", "ai_inferred") and s["content"].strip())
 
     def has_unflagged_tbd() -> bool:
         for s in sections:
-            if s["status"] != "grounded":
+            if s["status"] not in ("grounded", "ai_inferred"):
                 continue
             for match in _TBD_PATTERN.finditer(s["content"]):
                 window = s["content"][max(0, match.start() - 60) : match.end() + 60]

@@ -8,6 +8,23 @@ import re
 from backend.schemas import LedgerEntry
 
 
+class ResponseTruncated(Exception):
+    """Raised instead of letting a truncated response fail as a cryptic
+    json.loads parse error ('Unterminated string...'). Callers should check
+    response.stop_reason and raise this before calling extract_json, so the
+    user sees an actionable message pointing at the token budget instead of
+    a JSON syntax complaint that gives no hint why."""
+
+
+def check_not_truncated(stop_reason: str, max_tokens: int) -> None:
+    if stop_reason == "max_tokens":
+        raise ResponseTruncated(
+            f"The model's response was cut off at the {max_tokens}-token limit before finishing "
+            "its JSON -- this input is larger than the configured budget can draft in one pass. "
+            "Increase the relevant MAX_TOKENS_* setting, or trim the source documents."
+        )
+
+
 def extract_json(raw: str):
     """Claude is asked to return raw JSON, but models sometimes wrap it in a
     ```json fence anyway. Strip that defensively instead of trusting the

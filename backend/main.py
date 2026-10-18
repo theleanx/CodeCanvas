@@ -38,7 +38,7 @@ from backend.models_db import User
 from backend.schemas import SourceDocument, FSDDraft, FSD_TEMPLATE_SECTIONS
 from backend.agents.pipeline import run_fsd_creation
 from backend.seed import seed_if_empty
-from backend import routes_auth, routes_documents, routes_projects
+from backend import routes_auth, routes_documents, routes_export, routes_projects
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("codecanvas")
@@ -72,6 +72,7 @@ def on_startup():
 app.include_router(routes_auth.router)
 app.include_router(routes_projects.router)
 app.include_router(routes_documents.router)
+app.include_router(routes_export.router)
 
 
 # ---------------------------------------------------------------------------

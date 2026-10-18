@@ -21,3 +21,26 @@ AGENT_MODEL = os.environ.get("CODECANVAS_AGENT_MODEL", "claude-sonnet-5")
 
 MAX_TOKENS_LEDGER = 4096
 MAX_TOKENS_DRAFT = 8192
+
+# --- Export / push integrations ---------------------------------------------
+# Both are optional -- the download endpoints (Markdown/Word/PDF) need none
+# of this. These only gate the two "push" buttons; each is turned off until
+# its own env vars are set, and the endpoint says so plainly rather than
+# crashing.
+
+# GitHub: a classic or fine-grained Personal Access Token with "contents:
+# write" on the target repo. Generate one at
+# https://github.com/settings/tokens, then set both of these on the host
+# (Render: service -> Environment).
+GITHUB_EXPORT_TOKEN = os.environ.get("GITHUB_EXPORT_TOKEN")
+GITHUB_EXPORT_REPO = os.environ.get("GITHUB_EXPORT_REPO")  # "owner/repo"
+GITHUB_EXPORT_BASE_PATH = os.environ.get("GITHUB_EXPORT_BASE_PATH", "fsd-exports")
+
+# Google Drive: a service account JSON key (its whole contents, as one env
+# var) with access to a target shared folder. Create the service account in
+# Google Cloud Console, enable the Drive API, then share the destination
+# Drive folder with the service account's email (found in the JSON key as
+# "client_email") as an Editor -- a service account has no storage of its
+# own, so without a shared folder every upload fails on quota.
+GOOGLE_SERVICE_ACCOUNT_JSON = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON")
+GOOGLE_DRIVE_FOLDER_ID = os.environ.get("GOOGLE_DRIVE_FOLDER_ID")

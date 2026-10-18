@@ -11,11 +11,13 @@ The core principle: every section of a generated document is either **grounded**
 - **Document parsing**: real server-side text extraction from `.docx` and `.pdf` (not just `.txt`/pasted text).
 - **Auth**: JWT-based login, bcrypt password hashing, role-based access (`admin`, `module_lead`, `solution_architect`, `contributor`).
 - **Role-gated dual approval**: an FSD draft needs Module Lead + Solution Architect approval when its quality score is below 80%; the UI only lets a user approve the slot matching their own role (or admin).
+- **Add-context regeneration**: any Needs Input / Conflict section can take typed clarification, which is added as a new source and regenerates the whole draft as a new version — so any other section grounded in the same facts gets re-drafted too, not just the one flagged.
+- **Export**: download an FSD as Markdown, Word (.docx), or PDF; optionally push it to a GitHub repo or a Google Drive folder (see below — both need their own env vars, downloads need none).
 - **React + TypeScript + Tailwind frontend**: Dashboard → Project → Object → FSD Intake → FSD Review, wired end-to-end to the live backend.
 
 ## Not built yet
 
-Feasibility, TSD, Code, Code Review, and Unit Test agents; GitHub integration for generated code; Project Overview/KPI dashboards and Agent Observability (deliberately not faked — they need real agent-run telemetry that doesn't exist yet); Settings; Project Brain document store.
+Feasibility, TSD, Code, Code Review, and Unit Test agents; GitHub integration for *generated SAP code* (the export push above is for the FSD document itself, a separate thing); Project Overview/KPI dashboards and Agent Observability (deliberately not faked — they need real agent-run telemetry that doesn't exist yet); Settings; Project Brain document store.
 
 ## Running it locally
 
@@ -49,3 +51,12 @@ Password for all: `codecanvas123`
 | `ankit.buffalo@gmail.com` | Solution Architect |
 
 On first run, the backend seeds these accounts plus a handful of demo projects/objects (Westlake Chemicals, Meijer AP Modernization, Tennant, CSL OneERP) so there's real data to click through immediately.
+
+### Optional: export push targets
+
+The three downloads (Markdown/Word/PDF) work with zero setup. The two push buttons on FSD Review are each gated by their own env vars — unset, they fail with a clear "not configured" message instead of crashing:
+
+- **GitHub** — `GITHUB_EXPORT_TOKEN` (a PAT with `Contents: write` on the target repo) + `GITHUB_EXPORT_REPO` (`owner/repo`). Commits the FSD as Markdown to `fsd-exports/<project>/<object>/...` in that repo.
+- **Google Drive** — `GOOGLE_SERVICE_ACCOUNT_JSON` (a service account key's full JSON) + `GOOGLE_DRIVE_FOLDER_ID` (a Drive folder shared with that service account's `client_email` as Editor). Uploads the FSD as a native Google Doc.
+
+See `.env.example` for the full list.

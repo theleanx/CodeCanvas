@@ -4,14 +4,18 @@ import AppShell from '../components/AppShell'
 import { useAuth } from '../context/AuthContext'
 import {
   ApiError,
+  downloadFsdExport,
   generateFsdDraft,
   getFsdDraft,
   getLatestFsdDraft,
   getObject,
   getProject,
   listFsdDrafts,
+  pushFsdToGithub,
+  pushFsdToGoogleDrive,
   setApproval,
 } from '../lib/api'
+import type { ExportFormat } from '../lib/api'
 import type { FsdDraftOut, FsdDraftSummary, FSDSection, Project, SourceDocumentIn, TrackedObject } from '../lib/types'
 
 const PROJECT_NAV = (projectId: string) => [
@@ -275,6 +279,7 @@ export default function FsdReview() {
                 error={approvalError}
                 onToggle={(role) => handleApprovalToggle(run.draft, role)}
               />
+              <ExportCard draftId={run.draft.id} />
               <VersionHistoryCard versions={versions} activeVersion={run.draft.version} onSelect={viewVersion} />
               <LedgerCard draft={run.draft} />
               <div className="rounded-2xl border border-card-border bg-white p-4 text-[11px] text-faint">
@@ -671,6 +676,100 @@ function ApproverRow({
       >
         {approved ? 'Approved ✓' : 'Approve'}
       </button>
+    </div>
+  )
+}
+
+const EXPORT_FORMATS: { format: ExportFormat; label: string }[] = [
+  { format: 'markdown', label: 'Markdown (.md)' },
+  { format: 'docx', label: 'Word (.docx)' },
+  { format: 'pdf', label: 'PDF' },
+]
+
+function ExportCard({ draftId }: { draftId: string }) {
+  const [downloading, setDownloading] = useState<ExportFormat | null>(null)
+  const [pushing, setPushing] = useState<'github' | 'google-drive' | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [pushResult, setPushResult] = useState<{ target: string; url: string } | null>(null)
+
+  async function handleDownload(format: ExportFormat) {
+    setError(null)
+    setDownloading(format)
+    try {
+      await downloadFsdExport(draftId, format)
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : `Could not download as ${format}.`)
+    } finally {
+      setDownloading(null)
+    }
+  }
+
+  async function handlePush(target: 'github' | 'google-drive') {
+    setError(null)
+    setPushResult(null)
+    setPushing(target)
+    try {
+      const result = target === 'github' ? await pushFsdToGithub(draftId) : await pushFsdToGoogleDrive(draftId)
+      setPushResult({ target: target === 'github' ? 'GitHub' : 'Google Drive', url: result.url })
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : `Could not push to ${target}.`)
+    } finally {
+      setPushing(null)
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-2.5 rounded-2xl border border-card-border bg-white p-5">
+      <div className="font-heading text-[15px] font-bold">Export</div>
+
+      <div className="flex flex-col gap-1.5">
+        <div className="text-[11.5px] font-semibold uppercase tracking-wide text-faint">Download</div>
+        <div className="flex flex-wrap gap-1.5">
+          {EXPORT_FORMATS.map(({ format, label }) => (
+            <button
+              key={format}
+              type="button"
+              onClick={() => handleDownload(format)}
+              disabled={downloading !== null}
+              className="rounded-md border border-input-border bg-white px-3 py-1.5 text-[12.5px] font-semibold text-slate-pill-text disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {downloading === format ? 'Downloading…' : label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="mt-1.5 flex flex-col gap-1.5">
+        <div className="text-[11.5px] font-semibold uppercase tracking-wide text-faint">Push to</div>
+        <div className="flex flex-wrap gap-1.5">
+          <button
+            type="button"
+            onClick={() => handlePush('github')}
+            disabled={pushing !== null}
+            className="rounded-md border border-input-border bg-white px-3 py-1.5 text-[12.5px] font-semibold text-slate-pill-text disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {pushing === 'github' ? 'Pushing…' : 'GitHub'}
+          </button>
+          <button
+            type="button"
+            onClick={() => handlePush('google-drive')}
+            disabled={pushing !== null}
+            className="rounded-md border border-input-border bg-white px-3 py-1.5 text-[12.5px] font-semibold text-slate-pill-text disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {pushing === 'google-drive' ? 'Pushing…' : 'Google Drive'}
+          </button>
+        </div>
+      </div>
+
+      {pushResult && (
+        <div className="rounded-md border border-green-border bg-green-soft px-2.5 py-2 text-[12px] text-green">
+          Pushed to {pushResult.target} —{' '}
+          <a href={pushResult.url} target="_blank" rel="noreferrer" className="font-semibold underline">
+            open it
+          </a>
+        </div>
+      )}
+      {error && <div className="rounded-md border border-red-border bg-red-soft px-2.5 py-2 text-[12px] text-red-text">{error}</div>}
     </div>
   )
 }

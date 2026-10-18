@@ -138,6 +138,59 @@ export function setApproval(draftId: string, role: 'module_lead' | 'solution_arc
   })
 }
 
+// --- export / push ---
+
+export type ExportFormat = 'markdown' | 'docx' | 'pdf'
+
+// Downloads need the raw response (filename + binary blob), not the
+// JSON-shaped `request<T>()` helper above, so this talks to fetch directly
+// -- but still attaches the same auth header and 401 handling.
+export async function downloadFsdExport(draftId: string, format: ExportFormat): Promise<void> {
+  const token = getToken()
+  const headers: Record<string, string> = {}
+  if (token) headers.Authorization = `Bearer ${token}`
+
+  const res = await fetch(`${API_BASE}/api/fsd-drafts/${draftId}/export/${format}`, { headers })
+  if (!res.ok) {
+    if (res.status === 401) onUnauthorized?.()
+    let detail = `Export failed (${res.status})`
+    try {
+      const body = await res.json()
+      if (body?.detail) detail = typeof body.detail === 'string' ? body.detail : JSON.stringify(body.detail)
+    } catch {
+      // not JSON -- keep the generic message
+    }
+    throw new ApiError(res.status, detail)
+  }
+
+  const disposition = res.headers.get('Content-Disposition') || ''
+  const match = disposition.match(/filename="([^"]+)"/)
+  const filename = match ? match[1] : `fsd-export.${format === 'markdown' ? 'md' : format}`
+
+  const blob = await res.blob()
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  URL.revokeObjectURL(url)
+}
+
+export interface PushResult {
+  url: string
+  detail: string
+}
+
+export function pushFsdToGithub(draftId: string) {
+  return request<PushResult>(`/api/fsd-drafts/${draftId}/push/github`, { method: 'POST' })
+}
+
+export function pushFsdToGoogleDrive(draftId: string) {
+  return request<PushResult>(`/api/fsd-drafts/${draftId}/push/google-drive`, { method: 'POST' })
+}
+
 // --- documents ---
 
 export async function extractDocument(file: File) {

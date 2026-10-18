@@ -1,0 +1,29 @@
+# Render Blueprint -- deploy with "New > Blueprint" in the Render
+# dashboard, pointing at this repo. Provisions the web service (API +
+# built frontend, one image) and a free Postgres database, and wires the
+# database's connection string into the app automatically.
+#
+# After the blueprint runs, set ANTHROPIC_API_KEY (and optionally
+# CODECANVAS_JWT_SECRET, though Render will generate one) in the
+# service's Environment tab -- secrets aren't stored in this file.
+
+databases:
+  - name: codecanvas-db
+    plan: free
+
+services:
+  - type: web
+    name: codecanvas
+    env: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /api/health
+    envVars:
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: CODECANVAS_JWT_SECRET
+        generateValue: true
+      - key: CODECANVAS_DATABASE_URL
+        fromDatabase:
+          name: codecanvas-db
+          property: connectionString

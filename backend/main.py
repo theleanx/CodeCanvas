@@ -23,9 +23,12 @@ from __future__ import annotations
 import logging
 import time
 import uuid
+from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from backend.auth import get_current_user
@@ -121,3 +124,29 @@ def generate_fsd(payload: FSDGenerateRequest, user: User = Depends(get_current_u
     logger.info("fsd_generate(legacy) done request_id=%s duration_ms=%s", request_id, duration_ms)
 
     return FSDGenerateResponse(request_id=request_id, duration_ms=duration_ms, draft=draft)
+
+
+# ---------------------------------------------------------------------------
+# Serve the built frontend (frontend/dist) from this same service, so a
+# single deploy (one Docker image, one host) covers both API and UI --
+# no separate static site, no cross-origin base-URL config needed. Only
+# kicks in when the built assets actually exist (the Dockerfile builds
+# them); local `uvicorn --reload` dev still runs frontend separately via
+# `npm run dev` against this backend, same as before.
+# ---------------------------------------------------------------------------
+
+FRONTEND_DIST = Path(__file__).resolve().parent.parent / "frontend" / "dist"
+
+if FRONTEND_DIST.is_dir():
+    app.mount("/assets", StaticFiles(directory=FRONTEND_DIST / "assets"), name="frontend-assets")
+
+    @app.get("/{full_path:path}", include_in_schema=False)
+    def serve_spa(full_path: str):
+        # Any path not already matched by an API route or /assets above
+        # falls through to here -- always hand back index.html so React
+        # Router's client-side routes (e.g. /projects/abc) work on a hard
+        # reload or direct link, not just client-side navigation.
+        candidate = FRONTEND_DIST / full_path
+        if full_path and candidate.is_file():
+            return FileResponse(candidate)
+        return FileResponse(FRONTEND_DIST / "index.html")

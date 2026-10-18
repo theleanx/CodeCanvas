@@ -19,7 +19,13 @@ JWT_EXPIRES_MINUTES = 60 * 24 * 7  # 7 days -- a demo/internal tool, not a bank
 # this is the only place the model name is pinned.
 AGENT_MODEL = os.environ.get("CODECANVAS_AGENT_MODEL", "claude-sonnet-5")
 
-MAX_TOKENS_LEDGER = 4096
+# The ledger step extracts one JSON entry (fact/source_id/source_quote/
+# topic_hint) per atomic fact across ALL source documents combined -- a real
+# object with several reference documents (BRD, transcripts, a linked repo's
+# docs, Project Brain excerpts, plus any queued regenerate context) can
+# produce well over the 30-40 entries that fit in 4096 tokens, truncating
+# mid-array before the draft step even runs. Raised to match MAX_TOKENS_DRAFT.
+MAX_TOKENS_LEDGER = 8192
 MAX_TOKENS_DRAFT = 8192
 # The Enhancement template drafts twelve richer sections (plus structured
 # flow_steps/wireframe data for the diagrams) in one JSON response -- 8192

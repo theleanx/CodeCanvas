@@ -18,6 +18,7 @@ import anthropic
 from backend.config import ANTHROPIC_API_KEY, AGENT_MODEL, MAX_TOKENS_LEDGER
 from backend.schemas import SourceDocument, LedgerEntry
 from backend.agents.json_utils import check_not_truncated, extract_json
+from backend.token_usage import TokenUsage, usage_from_response
 
 SYSTEM_PROMPT = """You are the Extraction Ledger step of an SAP functional-spec \
 drafting pipeline. You read one or more source documents and extract atomic \
@@ -45,9 +46,9 @@ element: {"fact": str, "source_id": str, "source_quote": str, "topic_hint": str|
 """
 
 
-def build_extraction_ledger(sources: list[SourceDocument]) -> list[LedgerEntry]:
+def build_extraction_ledger(sources: list[SourceDocument]) -> tuple[list[LedgerEntry], TokenUsage]:
     if not sources:
-        return []
+        return [], TokenUsage()
 
     client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
@@ -84,4 +85,4 @@ def build_extraction_ledger(sources: list[SourceDocument]) -> list[LedgerEntry]:
                 topic_hint=item.get("topic_hint"),
             )
         )
-    return ledger
+    return ledger, usage_from_response(response)

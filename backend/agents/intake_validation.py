@@ -24,6 +24,7 @@ from backend.config import ANTHROPIC_API_KEY, AGENT_MODEL, MAX_TOKENS_INTAKE_VAL
 from backend.intake_checklist import QUALITY_CHECK_DEFINITIONS, checklist_for_object_type
 from backend.schemas import FSDSection, IntakeValidationResult
 from backend.agents.json_utils import check_not_truncated, extract_json
+from backend.token_usage import TokenUsage, usage_from_response
 
 SYSTEM_PROMPT = """You are the Intake Validation step of an SAP functional-spec \
 delivery pipeline -- the quality gate a document passes through before a \
@@ -112,7 +113,7 @@ def run_intake_validation(
     object_type: str,
     object_module: str,
     project_name: str,
-) -> IntakeValidationResult:
+) -> tuple[IntakeValidationResult, TokenUsage]:
     """Occasionally the model leaks a self-correcting aside or closes the
     JSON object early instead of actually finishing it -- observed on a
     near-empty document (mostly needs_input sections), not a token-budget
@@ -139,7 +140,7 @@ def _run_intake_validation_once(
     object_type: str,
     object_module: str,
     project_name: str,
-) -> IntakeValidationResult:
+) -> tuple[IntakeValidationResult, TokenUsage]:
     client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
     checklist_items = checklist_for_object_type(object_type)
@@ -177,4 +178,4 @@ PROJECT: {project_name}
     raw_text = "".join(block.text for block in response.content if block.type == "text")
     data = extract_json(raw_text)
 
-    return IntakeValidationResult.model_validate(data)
+    return IntakeValidationResult.model_validate(data), usage_from_response(response)

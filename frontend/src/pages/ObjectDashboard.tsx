@@ -39,6 +39,12 @@ export default function ObjectDashboard() {
   const { projectId, objectId } = useParams<{ projectId: string; objectId: string }>()
   const [searchParams, setSearchParams] = useSearchParams()
   const [state, setState] = useState<LoadState>({ phase: 'loading' })
+  // Lifted up here (rather than fetched inside the FSD tab panel) so the
+  // stat-card row above the stepper has real numbers regardless of which
+  // stage tab is active -- a draft may not exist yet, which is a normal
+  // state (a brand-new object), not an error.
+  const [draft, setDraft] = useState<FsdDraftOut | null>(null)
+  const [draftLoaded, setDraftLoaded] = useState(false)
 
   const requestedTab = searchParams.get('tab')
   const activeTab: PipelineStageKey = (STAGES.find((s) => s.key === requestedTab)?.key ?? 'fsd') as PipelineStageKey
@@ -48,6 +54,11 @@ export default function ObjectDashboard() {
     Promise.all([getProject(projectId), getObject(objectId)])
       .then(([project, object]) => setState({ phase: 'done', project, object }))
       .catch((err) => setState({ phase: 'error', message: err instanceof ApiError ? err.message : 'Could not load this object.' }))
+    setDraftLoaded(false)
+    getLatestFsdDraft(objectId)
+      .then((d) => setDraft(d))
+      .catch(() => setDraft(null))
+      .finally(() => setDraftLoaded(true))
   }, [projectId, objectId])
 
   useEffect(() => {
@@ -102,21 +113,9 @@ export default function ObjectDashboard() {
         <span className="rounded-full bg-slate-pill-bg px-2.5 py-1 text-xs font-bold text-slate-pill-text">{object.module}</span>
       </div>
 
-      <div className="mb-6 flex items-center gap-1 overflow-x-auto rounded-xl border border-card-border bg-white p-1.5">
-        {STAGES.map((stage) => (
-          <button
-            key={stage.key}
-            type="button"
-            onClick={() => setSearchParams({ tab: stage.key })}
-            className={`flex shrink-0 items-center gap-2 whitespace-nowrap rounded-lg px-4 py-2.5 text-[13px] font-semibold ${
-              activeTab === stage.key ? 'bg-accent text-white' : 'text-slate-pill-text hover:bg-app-bg'
-            }`}
-          >
-            {stage.label}
-            <PipelinePill stage={object[stage.statusField] as PipelineStage} />
-          </button>
-        ))}
-      </div>
+      <StatCardRow stages={STAGES} object={object} draft={draft} draftLoaded={draftLoaded} />
+
+      <PipelineStepper stages={STAGES} object={object} activeKey={activeTab} onSelect={(key) => setSearchParams({ tab: key })} />
 
       <div className="rounded-2xl border border-card-border bg-white p-7">
         <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
@@ -138,7 +137,7 @@ export default function ObjectDashboard() {
         </div>
 
         {activeStage.key === 'fsd' ? (
-          <FsdStagePanel projectId={project.id} objectId={object.id} object={object} />
+          <FsdStagePanel projectId={project.id} objectId={object.id} object={object} draft={draft} draftLoaded={draftLoaded} />
         ) : (
           <div className="rounded-xl border border-dashed border-input-border bg-app-bg/60 p-8 text-center text-sm text-muted">
             {activeStage.label} isn't built yet in this app — the status above is a manual marker you can set and
@@ -150,28 +149,142 @@ export default function ObjectDashboard() {
   )
 }
 
-function FsdStagePanel({ projectId, objectId, object }: { projectId: string; objectId: string; object: TrackedObject }) {
-  const [draft, setDraft] = useState<FsdDraftOut | null>(null)
-  const [loaded, setLoaded] = useState(false)
+// --- Pipeline stepper ------------------------------------------------------
+// A visual read on the object's whole pipeline at a glance -- inspired by
+// (not a copy of) the Capgemini Atlas Forge dashboard's stage stepper.
+// Still backed by the same manually-set per-stage status fields as the old
+// tab row (nothing here is a real multi-agent run beyond the FSD stage),
+// it just makes "where is this object, overall" visible without clicking
+// through every tab.
 
-  useEffect(() => {
-    let cancelled = false
-    getLatestFsdDraft(objectId)
-      .then((d) => {
-        if (!cancelled) setDraft(d)
-      })
-      .catch(() => {
-        if (!cancelled) setDraft(null)
-      })
-      .finally(() => {
-        if (!cancelled) setLoaded(true)
-      })
-    return () => {
-      cancelled = true
+const NODE_STYLES: Record<PipelineStage, string> = {
+  'Not Started': 'border-input-border bg-white text-faint',
+  'In Progress': 'border-accent bg-accent text-white',
+  Blocked: 'border-red bg-red text-white',
+  'On Hold': 'border-amber bg-amber text-white',
+  Complete: 'border-green bg-green text-white',
+}
+
+function PipelineStepper({
+  stages,
+  object,
+  activeKey,
+  onSelect,
+}: {
+  stages: StageDef[]
+  object: TrackedObject
+  activeKey: PipelineStageKey
+  onSelect: (key: PipelineStageKey) => void
+}) {
+  return (
+    <div className="mb-6 overflow-x-auto rounded-2xl border border-card-border bg-white px-6 py-7">
+      <div className="flex min-w-max items-start">
+        {stages.map((stage, idx) => {
+          const status = object[stage.statusField] as PipelineStage
+          const prevStatus = idx > 0 ? (object[stages[idx - 1].statusField] as PipelineStage) : null
+          const isActive = stage.key === activeKey
+          return (
+            <div key={stage.key} className="flex items-start">
+              {idx > 0 && (
+                <div className={`mt-5 h-[2px] w-9 shrink-0 sm:w-14 ${prevStatus === 'Complete' ? 'bg-green' : 'bg-card-border'}`} />
+              )}
+              <button
+                type="button"
+                onClick={() => onSelect(stage.key)}
+                className="flex w-[88px] shrink-0 flex-col items-center gap-2 bg-transparent text-center"
+              >
+                <span
+                  className={`flex h-10 w-10 items-center justify-center rounded-full border-2 text-[13px] font-bold ${NODE_STYLES[status]} ${
+                    isActive ? 'ring-[3px] ring-accent-soft' : ''
+                  }`}
+                >
+                  {status === 'Complete' ? '✓' : idx + 1}
+                </span>
+                <span className={`text-[12.5px] font-semibold ${isActive ? 'text-ink' : 'text-muted'}`}>{stage.label}</span>
+                <PipelinePill stage={status} />
+              </button>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+// --- Stat cards --------------------------------------------------------
+// Current Step / Next Step / Tokens & Cost / Execution Time -- the same
+// four-card idea as the Capgemini Manager Agent dashboard's stat row,
+// adapted to what CodeCanvas actually tracks: Current/Next Step read the
+// per-stage statuses above, Tokens & Cost and Execution Time come from the
+// latest FSD draft's real recorded usage and duration (null/"—" rather
+// than a guess when a draft predates this tracking, or doesn't exist yet).
+
+function StatCard({ label, value, sublabel }: { label: string; value: string; sublabel?: string }) {
+  return (
+    <div className="rounded-xl border border-card-border bg-white p-5">
+      <div className="text-[11px] font-semibold uppercase tracking-wide text-muted">{label}</div>
+      <div className="mt-1.5 font-heading text-lg font-bold text-ink">{value}</div>
+      {sublabel && <div className="mt-0.5 text-[12px] text-muted">{sublabel}</div>}
+    </div>
+  )
+}
+
+function StatCardRow({
+  stages,
+  object,
+  draft,
+  draftLoaded,
+}: {
+  stages: StageDef[]
+  object: TrackedObject
+  draft: FsdDraftOut | null
+  draftLoaded: boolean
+}) {
+  const firstIncompleteIdx = stages.findIndex((s) => object[s.statusField] !== 'Complete')
+  const currentStepLabel = firstIncompleteIdx === -1 ? 'All stages complete' : stages[firstIncompleteIdx].label
+  const nextStepLabel =
+    firstIncompleteIdx === -1 || firstIncompleteIdx === stages.length - 1 ? '—' : stages[firstIncompleteIdx + 1].label
+
+  let tokensValue = '—'
+  let tokensSublabel: string | undefined = 'No FSD run yet'
+  if (draftLoaded && draft) {
+    const total = draft.token_usage_total
+    if (total) {
+      tokensValue = `${(total.input_tokens + total.output_tokens).toLocaleString()} tok`
+      tokensSublabel = total.cost_usd != null ? `~$${total.cost_usd.toFixed(3)} est.` : 'Cost n/a for this model'
+    } else {
+      tokensValue = 'Not tracked'
+      tokensSublabel = 'Generated before usage tracking existed'
     }
-  }, [objectId])
+  }
 
-  if (!loaded) {
+  const executionTimeValue = draftLoaded && draft ? `${(draft.duration_ms / 1000).toFixed(1)}s` : '—'
+  const executionTimeSublabel = draftLoaded && draft ? `Latest FSD generation (v${draft.version})` : undefined
+
+  return (
+    <div className="mb-6 grid grid-cols-2 gap-4 sm:grid-cols-4">
+      <StatCard label="Current Step" value={currentStepLabel} />
+      <StatCard label="Next Step" value={nextStepLabel} />
+      <StatCard label="Tokens & Cost" value={tokensValue} sublabel={tokensSublabel} />
+      <StatCard label="Execution Time" value={executionTimeValue} sublabel={executionTimeSublabel} />
+    </div>
+  )
+}
+
+function FsdStagePanel({
+  projectId,
+  objectId,
+  object,
+  draft,
+  draftLoaded,
+}: {
+  projectId: string
+  objectId: string
+  object: TrackedObject
+  draft: FsdDraftOut | null
+  draftLoaded: boolean
+}) {
+  if (!draftLoaded) {
     return <div className="text-sm text-muted">Loading…</div>
   }
 

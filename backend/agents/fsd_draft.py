@@ -14,6 +14,7 @@ import anthropic
 from backend.config import ANTHROPIC_API_KEY, AGENT_MODEL, MAX_TOKENS_DRAFT
 from backend.schemas import LedgerEntry, FSDSection, FSD_TEMPLATE_SECTIONS
 from backend.agents.json_utils import check_not_truncated, extract_json, format_ledger_block
+from backend.token_usage import TokenUsage, usage_from_response
 
 SYSTEM_PROMPT = """You are the Draft Generation step of an SAP functional-spec \
 drafting pipeline. You are given an Extraction Ledger -- a list of facts, each \
@@ -46,7 +47,7 @@ markdown fence. Each element:
 """
 
 
-def generate_fsd_draft(ledger: list[LedgerEntry]) -> list[FSDSection]:
+def generate_fsd_draft(ledger: list[LedgerEntry]) -> tuple[list[FSDSection], TokenUsage]:
     client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
     response = client.messages.create(
@@ -78,4 +79,4 @@ def generate_fsd_draft(ledger: list[LedgerEntry]) -> list[FSDSection]:
                 conflict_detail=item.get("conflict_detail"),
             )
         )
-    return sections
+    return sections, usage_from_response(response)

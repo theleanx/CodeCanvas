@@ -121,6 +121,17 @@ class FsdDraft(Base):
     intake_validation_status: Mapped[str | None] = mapped_column(String(20), default="pending", nullable=True)
     intake_validation_error: Mapped[str | None] = mapped_column(Text, nullable=True)
 
+    # Token usage + which model produced this run (backend/token_usage.py).
+    # Nullable for the same migration-safety reason as the Intake Validation
+    # columns above -- drafts generated before this tracking existed just
+    # read back as None, which the API layer treats as "not tracked" rather
+    # than a zero-cost run. run_breakdown_json is {"ledger_and_draft": {...},
+    # "intake_validation": {...}} -- each value a TokenUsage dict (real
+    # input/output token counts; cost is derived at read time, never stored,
+    # so a pricing-table correction applies retroactively to old drafts too).
+    model_used: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    run_breakdown_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+
     request_id: Mapped[str] = mapped_column(String(64), default="")
     duration_ms: Mapped[int] = mapped_column(Integer, default=0)
 

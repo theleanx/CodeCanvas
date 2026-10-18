@@ -214,6 +214,15 @@ export interface IntakeValidationResult {
 
 export type IntakeValidationStatus = 'pending' | 'complete' | 'failed'
 
+// Real token counts off the Anthropic response, plus a dollar estimate --
+// null when the model that produced this draft isn't in the pricing table
+// in backend/token_usage.py, rather than a guessed figure.
+export interface TokenUsageOut {
+  input_tokens: number
+  output_tokens: number
+  cost_usd: number | null
+}
+
 export interface FsdDraftOut {
   id: string
   object_id: string
@@ -233,4 +242,7 @@ export interface FsdDraftOut {
   intake_validation_status: IntakeValidationStatus
   intake_validation: IntakeValidationResult | null
   intake_validation_error: string | null
+  model_used: string | null
+  token_usage_breakdown: Record<string, TokenUsageOut> | null
+  token_usage_total: TokenUsageOut | null
 }

@@ -15,10 +15,10 @@ from backend.quality_score import compute_quality_score
 
 
 def run_fsd_creation(sources: list[SourceDocument], object_type: str | None = None) -> FSDDraft:
-    ledger = build_extraction_ledger(sources)
+    ledger, ledger_usage = build_extraction_ledger(sources)
     if object_type == "Enhancement":
-        sections = generate_enhancement_fsd_draft(ledger)
+        sections, draft_usage = generate_enhancement_fsd_draft(ledger)
     else:
-        sections = generate_fsd_draft(ledger)
+        sections, draft_usage = generate_fsd_draft(ledger)
     score = compute_quality_score(sections)
-    return FSDDraft(sections=sections, ledger=ledger, quality_score=score)
+    return FSDDraft(sections=sections, ledger=ledger, quality_score=score, token_usage=ledger_usage + draft_usage)

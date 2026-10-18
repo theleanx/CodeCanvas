@@ -30,6 +30,8 @@ from __future__ import annotations
 from typing import Literal, Optional
 from pydantic import BaseModel, Field
 
+from backend.token_usage import TokenUsage
+
 
 class SourceDocument(BaseModel):
     source_id: str = Field(..., description="Stable id, e.g. 'typed_context', 'brd', 'transcript', 'project_brain:SOW.pdf'")
@@ -135,6 +137,7 @@ class FSDDraft(BaseModel):
     sections: list[FSDSection]
     ledger: list[LedgerEntry]
     quality_score: QualityScore
+    token_usage: TokenUsage = Field(default_factory=TokenUsage)
 
 
 # --- Intake Validation --------------------------------------------------

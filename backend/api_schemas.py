@@ -117,6 +117,17 @@ class ApprovalPatch(BaseModel):
     approved: bool  # false = withdraw this approval
 
 
+class TokenUsageOut(BaseModel):
+    """Real token counts for one LLM call (or a sum of several), plus a
+    dollar estimate -- None when the configured model isn't in the
+    documented pricing table in backend/token_usage.py, rather than a
+    guessed figure."""
+
+    input_tokens: int
+    output_tokens: int
+    cost_usd: Optional[float] = None
+
+
 class FsdDraftSummary(BaseModel):
     id: str
     version: int
@@ -167,3 +178,12 @@ class FsdDraftOut(BaseModel):
     intake_validation_status: Literal["pending", "complete", "failed"] = "pending"
     intake_validation: Optional[IntakeValidationResult] = None
     intake_validation_error: Optional[str] = None
+    # Token usage, per pipeline step, for this draft's generation run plus
+    # whichever Intake Validation attempt last succeeded or failed cleanly
+    # (see backend/token_usage.py) -- None for drafts generated before this
+    # tracking existed. A failed LLM call's tokens aren't counted (see
+    # _run_intake_validation_safely): this is an estimate for the user's own
+    # visibility, not a billing record.
+    model_used: Optional[str] = None
+    token_usage_breakdown: Optional[dict[str, TokenUsageOut]] = None
+    token_usage_total: Optional[TokenUsageOut] = None

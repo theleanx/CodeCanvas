@@ -23,6 +23,7 @@ from sqlalchemy.orm import Session
 from backend.agents.intake_validation import run_intake_validation
 from backend.agents.json_utils import ResponseTruncated
 from backend.agents.pipeline import run_fsd_creation
+from backend.config import AGENT_MODEL
 from backend.schemas import FSDSection
 from backend.api_schemas import (
     ApprovalPatch,
@@ -35,11 +36,13 @@ from backend.api_schemas import (
     ProjectCreate,
     ProjectOut,
     ApprovalState,
+    TokenUsageOut,
 )
 from backend.auth import get_current_user
 from backend.db import get_db
 from backend.fsd_enhancement_meta import build_document_identification, build_review_signoff, build_validation_table
 from backend.models_db import FsdDraft, Project, TrackedObject, User
+from backend.token_usage import TokenUsage, estimate_cost_usd
 
 logger = logging.getLogger("codecanvas")
 
@@ -88,25 +91,57 @@ def _object_out(db: Session, obj: TrackedObject) -> ObjectOut:
 
 def _run_intake_validation_safely(
     sections: list[FSDSection], object_name: str, object_type: str, object_module: str, project_name: str
-) -> tuple[str, dict | None, str | None]:
+) -> tuple[str, dict | None, str | None, TokenUsage]:
     """Intake Validation is a second LLM call layered on top of FSD
     generation, not a precondition for it -- a failure here (truncation, a
     malformed response, a transient API error) must never cost the user the
     FSD draft they just waited for. Always returns a (status, result_dict,
-    error) tuple instead of raising; callers persist whichever one came
-    back and surface a retry action for "failed" rather than losing the draft."""
+    error, usage) tuple instead of raising; callers persist whichever one
+    came back and surface a retry action for "failed" rather than losing
+    the draft. A failed attempt's tokens aren't counted here -- this is an
+    estimate for the user's own visibility, not a billing record, and a
+    brief honest gap beats a partial, hard-to-explain count."""
     try:
-        result = run_intake_validation(sections, object_name, object_type, object_module, project_name)
-        return "complete", result.model_dump(), None
+        result, usage = run_intake_validation(sections, object_name, object_type, object_module, project_name)
+        return "complete", result.model_dump(), None, usage
     except ResponseTruncated as exc:
         logger.warning("intake_validation truncated object=%s", object_name)
-        return "failed", None, str(exc)
+        return "failed", None, str(exc), TokenUsage()
     except Exception as exc:
         logger.exception("intake_validation failed object=%s", object_name)
-        return "failed", None, f"Intake Validation failed: {exc}"
+        return "failed", None, f"Intake Validation failed: {exc}", TokenUsage()
+
+
+def _token_usage_breakdown_out(
+    run_breakdown_json: dict | None, model_used: str | None
+) -> tuple[dict[str, TokenUsageOut] | None, TokenUsageOut | None]:
+    """Turns a draft's raw {"step": {"input_tokens":.., "output_tokens":..}}
+    breakdown into API-shape TokenUsageOut entries plus a grand total, with
+    cost estimated fresh at read time (never stored) so a pricing-table
+    correction in backend/token_usage.py applies to old drafts too."""
+    if not run_breakdown_json:
+        return None, None
+    model = model_used or AGENT_MODEL
+    breakdown_out: dict[str, TokenUsageOut] = {}
+    total = TokenUsage()
+    for step_key, usage_dict in run_breakdown_json.items():
+        usage = TokenUsage.model_validate(usage_dict)
+        total = total + usage
+        breakdown_out[step_key] = TokenUsageOut(
+            input_tokens=usage.input_tokens,
+            output_tokens=usage.output_tokens,
+            cost_usd=estimate_cost_usd(model, usage),
+        )
+    total_out = TokenUsageOut(
+        input_tokens=total.input_tokens,
+        output_tokens=total.output_tokens,
+        cost_usd=estimate_cost_usd(model, total),
+    )
+    return breakdown_out, total_out
 
 
 def _draft_out(db: Session, draft: FsdDraft) -> FsdDraftOut:
+    token_usage_breakdown, token_usage_total = _token_usage_breakdown_out(draft.run_breakdown_json, draft.model_used)
     out = FsdDraftOut(
         id=draft.id,
         object_id=draft.object_id,
@@ -122,6 +157,9 @@ def _draft_out(db: Session, draft: FsdDraft) -> FsdDraftOut:
         intake_validation_status=draft.intake_validation_status or "pending",
         intake_validation=draft.intake_validation_json,
         intake_validation_error=draft.intake_validation_error,
+        model_used=draft.model_used,
+        token_usage_breakdown=token_usage_breakdown,
+        token_usage_total=token_usage_total,
         approvals=ApprovalState(
             module_lead_approved=draft.module_lead_approved,
             module_lead_approved_by=draft.module_lead_approved_by,
@@ -323,7 +361,7 @@ def generate_fsd_draft(object_id: str, payload: FsdGenerateRequest, db: Session 
     # the draft itself, never allowed to turn a successful FSD generation
     # into a failed request -- see _run_intake_validation_safely.
     project = db.get(Project, obj.project_id)
-    iv_status, iv_result, iv_error = _run_intake_validation_safely(
+    iv_status, iv_result, iv_error, iv_usage = _run_intake_validation_safely(
         agent_draft.sections, obj.name, obj.type, obj.module, project.name if project else "—"
     )
 
@@ -340,6 +378,11 @@ def generate_fsd_draft(object_id: str, payload: FsdGenerateRequest, db: Session 
         intake_validation_status=iv_status,
         intake_validation_json=iv_result,
         intake_validation_error=iv_error,
+        model_used=AGENT_MODEL,
+        run_breakdown_json={
+            "ledger_and_draft": agent_draft.token_usage.model_dump(),
+            "intake_validation": iv_usage.model_dump(),
+        },
     )
     db.add(draft)
 
@@ -378,12 +421,21 @@ def rerun_intake_validation(draft_id: str, db: Session = Depends(get_db)):
     project = db.get(Project, obj.project_id)
     sections = [FSDSection.model_validate(s) for s in draft.sections_json]
 
-    iv_status, iv_result, iv_error = _run_intake_validation_safely(
+    iv_status, iv_result, iv_error, iv_usage = _run_intake_validation_safely(
         sections, obj.name, obj.type, obj.module, project.name if project else "—"
     )
     draft.intake_validation_status = iv_status
     draft.intake_validation_json = iv_result
     draft.intake_validation_error = iv_error
+    # Re-running Intake Validation alone shouldn't erase the ledger+draft
+    # entry from the breakdown -- merge into a fresh dict (not mutate the
+    # existing one in place) so SQLAlchemy actually sees the JSON column
+    # as changed and persists it.
+    breakdown = dict(draft.run_breakdown_json or {})
+    breakdown["intake_validation"] = iv_usage.model_dump()
+    draft.run_breakdown_json = breakdown
+    if not draft.model_used:
+        draft.model_used = AGENT_MODEL
     db.commit()
     db.refresh(draft)
     return _draft_out(db, draft)

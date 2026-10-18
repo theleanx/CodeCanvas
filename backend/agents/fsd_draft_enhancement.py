@@ -25,6 +25,7 @@ from backend.config import ANTHROPIC_API_KEY, AGENT_MODEL, MAX_TOKENS_ENHANCEMEN
 from backend.diagrams import render_flow_diagram, render_wireframe
 from backend.schemas import LedgerEntry, FSDSection, ENHANCEMENT_TEMPLATE_SECTIONS, ENHANCEMENT_DIAGRAM_SECTION_KEY
 from backend.agents.json_utils import check_not_truncated, extract_json, format_ledger_block
+from backend.token_usage import TokenUsage, usage_from_response
 
 SYSTEM_PROMPT = """You are the Draft Generation step of an SAP functional-spec \
 drafting pipeline, writing a development-ready Functional Specification \
@@ -112,7 +113,7 @@ after, no markdown fence. Each element:
 """
 
 
-def generate_enhancement_fsd_draft(ledger: list[LedgerEntry]) -> list[FSDSection]:
+def generate_enhancement_fsd_draft(ledger: list[LedgerEntry]) -> tuple[list[FSDSection], TokenUsage]:
     client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
     response = client.messages.create(
@@ -168,4 +169,4 @@ def generate_enhancement_fsd_draft(ledger: list[LedgerEntry]) -> list[FSDSection
                 images=images,
             )
         )
-    return sections
+    return sections, usage_from_response(response)

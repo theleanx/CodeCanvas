@@ -55,6 +55,42 @@ FSD_TEMPLATE_SECTIONS: list[dict] = [
     {"key": "technical_approach", "title": "Technical Approach"},
 ]
 
+# A second, much more specific template used only for object type
+# "Enhancement" -- modeled directly on the custom development-ready FSD
+# prompt the user supplied (SAP custom Extension / Enhancement objects).
+# Document Identification, the Validation table, and Review & Sign-off are
+# NOT in this list: they're derived from object/draft/approval metadata in
+# backend/fsd_enhancement_meta.py rather than drafted by the model, since
+# that data already exists and is more reliable computed than generated.
+ENHANCEMENT_TEMPLATE_SECTIONS: list[dict] = [
+    {"key": "requirements", "title": "Requirements"},
+    {"key": "solution_options", "title": "Solution Options"},
+    {"key": "current_functionality", "title": "Current Functionality"},
+    {"key": "future_process", "title": "Future Process / Required Functionality"},
+    {"key": "functional_design_logic", "title": "Functional Design & Process Logic"},
+    {"key": "process_flow", "title": "Process Flow"},
+    {"key": "performance_criteria", "title": "Performance Criteria"},
+    {"key": "error_handling", "title": "Error Handling"},
+    {"key": "dependencies_config", "title": "Dependencies & Dependent Configuration"},
+    {"key": "assumptions_constraints", "title": "Assumptions & Constraints"},
+    {"key": "security_roles", "title": "Security and Roles"},
+    {"key": "test_scenarios", "title": "Functional Unit Test Scenarios"},
+]
+
+# The one section (per the attached prompt) that must carry rendered
+# diagrams -- a process-flow flowchart always, plus a screen wireframe
+# whenever the object has a user-facing surface.
+ENHANCEMENT_DIAGRAM_SECTION_KEY = "process_flow"
+
+
+def get_template_sections(object_type: str | None) -> list[dict]:
+    """Which FSD template an object type drafts against. Enhancement gets
+    the richer, diagram-bearing template; everything else keeps the
+    original generic nine-section one."""
+    if object_type == "Enhancement":
+        return ENHANCEMENT_TEMPLATE_SECTIONS
+    return FSD_TEMPLATE_SECTIONS
+
 
 class FSDSection(BaseModel):
     key: str
@@ -64,6 +100,13 @@ class FSDSection(BaseModel):
     grounded_in: list[str] = Field(default_factory=list, description="entry_ids from the ledger this section draws on")
     needs_input_detail: Optional[str] = Field(None, description="What's missing, when status == needs_input")
     conflict_detail: Optional[str] = Field(None, description="Both positions and their sources, when status == conflict")
+    images: dict[str, str] = Field(
+        default_factory=dict,
+        description="Rendered diagrams for this section, as {label: base64-png-bytes}. Only ever "
+        "populated on the Enhancement template's 'process_flow' section (a flowchart, plus a "
+        "wireframe when the object has a user-facing surface). Never model-generated pixels -- "
+        "always rendered deterministically server-side from structured, model-supplied content.",
+    )
 
 
 class QualityScore(BaseModel):

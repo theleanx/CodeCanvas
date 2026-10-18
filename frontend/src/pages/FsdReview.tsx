@@ -16,7 +16,17 @@ import {
   setApproval,
 } from '../lib/api'
 import type { ExportFormat } from '../lib/api'
-import type { FsdDraftOut, FsdDraftSummary, FSDSection, Project, SourceDocumentIn, TrackedObject } from '../lib/types'
+import type {
+  DocumentIdentification,
+  FsdDraftOut,
+  FsdDraftSummary,
+  FSDSection,
+  Project,
+  ReviewSignoffRow,
+  SourceDocumentIn,
+  TrackedObject,
+  ValidationRow,
+} from '../lib/types'
 
 const PROJECT_NAV = (projectId: string) => [
   { label: 'Overview', to: `/projects/${projectId}/overview` },
@@ -261,6 +271,9 @@ export default function FsdReview() {
 
           <div className="flex flex-wrap items-start gap-6">
             <div className="flex min-w-0 flex-[2_1_580px] flex-col gap-5 rounded-2xl border border-card-border bg-white p-9">
+              {run.draft.document_identification && <DocumentIdentificationBlock info={run.draft.document_identification} />}
+              {run.draft.validation_table && <ValidationTableBlock rows={run.draft.validation_table} />}
+              {run.draft.review_signoff && <ReviewSignoffBlock rows={run.draft.review_signoff} />}
               {run.draft.sections.map((s, i) => (
                 <SectionBlock
                   key={s.key}
@@ -431,6 +444,100 @@ function QualityScoreCard({
   )
 }
 
+function DocumentIdentificationBlock({ info }: { info: DocumentIdentification }) {
+  const rows: [string, string][] = [
+    ['Object ID', info.object_id],
+    ['Type', info.object_type],
+    ['Module', info.module],
+    ['Project', info.project],
+    ['Version', info.version],
+    ['Status', info.status],
+    ['Generated', info.generated_on],
+  ]
+  return (
+    <div className="rounded-xl border border-card-border bg-app-bg/50 p-4.5">
+      <div className="mb-2.5 font-heading text-[15px] font-extrabold">Document Identification</div>
+      <div className="grid grid-cols-2 gap-x-6 gap-y-1.5 sm:grid-cols-3">
+        {rows.map(([label, value]) => (
+          <div key={label} className="text-[12.5px]">
+            <div className="text-faint">{label}</div>
+            <div className="font-semibold text-ink">{value}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function ValidationTableBlock({ rows }: { rows: ValidationRow[] }) {
+  return (
+    <div className="rounded-xl border border-card-border bg-white">
+      <div className="border-b border-card-border p-4.5 pb-2.5 font-heading text-[15px] font-extrabold">
+        Validation
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[560px] border-collapse text-[12.5px]">
+          <thead>
+            <tr className="border-b border-divider text-left text-[11px] font-semibold uppercase tracking-wide text-muted">
+              <th className="px-4.5 py-2">Validation Point</th>
+              <th className="px-4.5 py-2">How It's Satisfied</th>
+              <th className="px-4.5 py-2">Section</th>
+              <th className="px-4.5 py-2">Pass/Fail</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr key={row.point} className="border-b border-divider last:border-0">
+                <td className="px-4.5 py-2.5 font-semibold">{row.point}</td>
+                <td className="px-4.5 py-2.5 text-muted">{row.how_satisfied}</td>
+                <td className="px-4.5 py-2.5 text-muted">{row.section}</td>
+                <td className="px-4.5 py-2.5">
+                  <span
+                    className={`rounded-full px-2.5 py-0.5 text-[11px] font-bold ${
+                      row.pass ? 'bg-green-soft text-green' : 'bg-red-soft text-red-text'
+                    }`}
+                  >
+                    {row.pass ? 'Pass' : 'Fail'}
+                  </span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
+function ReviewSignoffBlock({ rows }: { rows: ReviewSignoffRow[] }) {
+  return (
+    <div className="rounded-xl border border-card-border bg-white p-4.5">
+      <div className="mb-2.5 font-heading text-[15px] font-extrabold">Review and Sign-off</div>
+      <div className="flex flex-col gap-2">
+        {rows.map((row) => (
+          <div
+            key={row.role}
+            className={`flex items-center justify-between rounded-lg border px-3.5 py-2.5 text-[12.5px] ${
+              row.status === 'Signed off' ? 'border-green-border bg-green-soft' : 'border-input-border bg-app-bg/50'
+            }`}
+          >
+            <div>
+              <div className="font-semibold">{row.role}</div>
+              <div className="text-faint">{row.name}</div>
+            </div>
+            <div className="text-right">
+              <div className={`font-semibold ${row.status === 'Signed off' ? 'text-green' : 'text-muted'}`}>
+                {row.status}
+              </div>
+              <div className="text-faint">{row.date}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 function SectionBlock({
   index,
   section,
@@ -450,6 +557,12 @@ function SectionBlock({
           {index}. {section.title}
         </div>
         <div className="text-[13.5px] leading-relaxed text-[#333d4d]">{section.content}</div>
+        {Object.entries(section.images ?? {}).map(([label, b64]) => (
+          <figure key={label} className="mt-3 rounded-lg border border-card-border bg-app-bg/60 p-3">
+            <img src={`data:image/png;base64,${b64}`} alt={label} className="mx-auto block max-w-full rounded-md" />
+            <figcaption className="mt-2 text-center text-[11.5px] font-semibold text-muted">{label}</figcaption>
+          </figure>
+        ))}
       </div>
     )
   }

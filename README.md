@@ -7,6 +7,8 @@ The core principle: every section of a generated document is either **grounded**
 ## What's built so far
 
 - **FSD Creation agent**: extracts a fact ledger from pasted/uploaded source documents, drafts each FSD section against that ledger, and scores intake quality (grounded / needs-input / conflict %).
+- **Enhancement-specific FSD template**: objects of type "Enhancement" get a different, more detailed 12-section template (Requirements, Solution Options, Current/Future Functionality, Functional Design & Process Logic, Process Flow, Performance Criteria, Error Handling, Dependencies & Config, Assumptions & Constraints, Security and Roles, Test Scenarios), plus a computed Document Identification block, a Review & Sign-off table, and a 9-point Validation table — all included in the on-screen review and every export. The Process Flow section also gets two rendered diagrams (a flowchart and, where relevant, a screen wireframe) drawn server-side from the agent's structured output, not invented pixels. Every other object type still uses the original generic nine-section template.
+- **Reference Documents by link**: besides uploading a file or pasting text, a reference document can be a link to one file in a GitHub repo (or any other plain URL) — fetched and parsed on the server.
 - **FastAPI backend** with real persistence (SQLite dev DB) for projects, tracked objects, and versioned FSD drafts.
 - **Document parsing**: real server-side text extraction from `.docx` and `.pdf` (not just `.txt`/pasted text).
 - **Auth**: JWT-based login, bcrypt password hashing, role-based access (`admin`, `module_lead`, `solution_architect`, `contributor`).

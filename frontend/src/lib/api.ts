@@ -201,3 +201,10 @@ export async function extractDocument(file: File) {
     body: form,
   })
 }
+
+export function fetchDocumentLink(url: string) {
+  return request<{ label: string; text: string; char_count: number }>('/api/documents/fetch-link', {
+    method: 'POST',
+    body: JSON.stringify({ url }),
+  })
+}

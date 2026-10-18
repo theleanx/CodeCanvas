@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams, Link } from 'react-router-dom'
 import AppShell from '../components/AppShell'
-import { ApiError, extractDocument, getObject, getProject } from '../lib/api'
+import { ApiError, extractDocument, fetchDocumentLink, getObject, getProject } from '../lib/api'
 import type { Project, SourceDocumentIn, TrackedObject } from '../lib/types'
 
 const DOC_TYPES = [
@@ -42,9 +42,12 @@ export default function FsdIntake() {
   const [draftDocType, setDraftDocType] = useState(DOC_TYPES[0])
   const [draftLabel, setDraftLabel] = useState('')
   const [draftText, setDraftText] = useState('')
-  const [draftMode, setDraftMode] = useState<'pasted' | 'uploaded'>('pasted')
+  const [draftMode, setDraftMode] = useState<'pasted' | 'uploaded' | 'linked'>('pasted')
   const [fileError, setFileError] = useState<string | null>(null)
   const [uploading, setUploading] = useState(false)
+  const [linkUrl, setLinkUrl] = useState('')
+  const [linkFetching, setLinkFetching] = useState(false)
+  const [linkError, setLinkError] = useState<string | null>(null)
 
   useEffect(() => {
     if (!projectId || !objectId) return
@@ -88,6 +91,22 @@ export default function FsdIntake() {
     }
   }
 
+  async function handleLink() {
+    const url = linkUrl.trim()
+    if (!url) return
+    setLinkError(null)
+    setLinkFetching(true)
+    try {
+      const { label, text } = await fetchDocumentLink(url)
+      setDraftText(text)
+      if (!draftLabel) setDraftLabel(label)
+    } catch (err) {
+      setLinkError(err instanceof ApiError ? err.message : `Couldn't fetch that link.`)
+    } finally {
+      setLinkFetching(false)
+    }
+  }
+
   function addDocument() {
     if (!draftText.trim()) return
     docCounter += 1
@@ -102,6 +121,8 @@ export default function FsdIntake() {
     setDraftLabel('')
     setDraftText('')
     setFileError(null)
+    setLinkError(null)
+    setLinkUrl('')
   }
 
   function removeDocument(id: string) {
@@ -190,8 +211,43 @@ export default function FsdIntake() {
             >
               Paste text
             </button>
+            <button
+              type="button"
+              onClick={() => setDraftMode('linked')}
+              className={`border-l border-input-border px-3 py-1.5 text-[12.5px] font-semibold ${
+                draftMode === 'linked' ? 'bg-accent text-white' : 'bg-white text-slate-pill-text'
+              }`}
+            >
+              Link to repo
+            </button>
           </div>
         </div>
+
+        {draftMode === 'linked' ? (
+          <div className="flex flex-col gap-2 rounded-lg border border-dashed border-input-border bg-app-bg/60 p-4">
+            <div className="flex flex-wrap items-center gap-2">
+              <input
+                value={linkUrl}
+                onChange={(e) => setLinkUrl(e.target.value)}
+                placeholder="https://github.com/org/repo/blob/main/docs/BRD.docx"
+                className="min-w-[280px] flex-1 rounded-md border border-input-border px-2.5 py-1.5 text-[13px]"
+              />
+              <button
+                type="button"
+                onClick={handleLink}
+                disabled={!linkUrl.trim() || linkFetching}
+                className="whitespace-nowrap rounded-md bg-accent px-3.5 py-1.5 text-[12.5px] font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                {linkFetching ? 'Fetching…' : 'Fetch'}
+              </button>
+            </div>
+            <div className="text-[11.5px] text-muted">
+              A link to one file in a GitHub repo (or any other plain URL) — fetched and parsed on the server, same
+              as an upload. Point at the file itself, not the repo's homepage.
+            </div>
+          </div>
+        ) : null}
+        {linkError && <div className="text-[11.5px] text-red-text">{linkError}</div>}
 
         {draftMode === 'uploaded' ? (
           <label className="flex cursor-pointer flex-wrap items-center justify-between gap-3 rounded-lg border border-dashed border-input-border bg-app-bg/60 p-4">

@@ -20,6 +20,7 @@ from sqlalchemy.orm import Session
 from backend.auth import get_current_user
 from backend.db import get_db
 from backend.export import build_docx, build_markdown, build_pdf
+from backend.fsd_enhancement_meta import build_document_identification, build_review_signoff, build_validation_table
 from backend.models_db import FsdDraft, Project, TrackedObject
 from backend.push import PushNotConfigured, push_docx_to_google_drive, push_markdown_to_github
 
@@ -66,6 +67,12 @@ def _load_context(db: Session, draft_id: str) -> tuple[dict, dict, dict]:
     }
     obj_dict = {"id": obj.id, "name": obj.name, "type": obj.type, "module": obj.module}
     project_dict = {"id": project.id, "name": project.name}
+
+    if obj.type == "Enhancement":
+        draft_dict["document_identification"] = build_document_identification(obj_dict, project_dict, draft_dict)
+        draft_dict["review_signoff"] = build_review_signoff(draft_dict)
+        draft_dict["validation_table"] = build_validation_table(draft.sections_json)
+
     return draft_dict, obj_dict, project_dict
 
 

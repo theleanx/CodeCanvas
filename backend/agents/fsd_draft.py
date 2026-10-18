@@ -13,7 +13,7 @@ import anthropic
 
 from backend.config import ANTHROPIC_API_KEY, AGENT_MODEL, MAX_TOKENS_DRAFT
 from backend.schemas import LedgerEntry, FSDSection, FSD_TEMPLATE_SECTIONS
-from backend.agents.json_utils import extract_json
+from backend.agents.json_utils import extract_json, format_ledger_block
 
 SYSTEM_PROMPT = """You are the Draft Generation step of an SAP functional-spec \
 drafting pipeline. You are given an Extraction Ledger -- a list of facts, each \
@@ -46,18 +46,6 @@ markdown fence. Each element:
 """
 
 
-def _ledger_block(ledger: list[LedgerEntry]) -> str:
-    lines = []
-    for entry in ledger:
-        lines.append(
-            f"- entry_id={entry.entry_id} source_id={entry.source_id} "
-            f"topic_hint={entry.topic_hint}\n"
-            f"  fact: {entry.fact}\n"
-            f"  quote: {entry.source_quote!r}"
-        )
-    return "\n".join(lines) if lines else "(ledger is empty -- every section needs_input)"
-
-
 def generate_fsd_draft(ledger: list[LedgerEntry]) -> list[FSDSection]:
     client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
@@ -65,7 +53,7 @@ def generate_fsd_draft(ledger: list[LedgerEntry]) -> list[FSDSection]:
         model=AGENT_MODEL,
         max_tokens=MAX_TOKENS_DRAFT,
         system=SYSTEM_PROMPT,
-        messages=[{"role": "user", "content": _ledger_block(ledger)}],
+        messages=[{"role": "user", "content": format_ledger_block(ledger)}],
     )
 
     raw_text = "".join(block.text for block in response.content if block.type == "text")

@@ -27,6 +27,35 @@ export interface FSDSection {
   grounded_in: string[]
   needs_input_detail: string | null
   conflict_detail: string | null
+  images: Record<string, string>
+}
+
+// Only present on drafts for "Enhancement" objects -- the custom
+// development-ready FSD template. Generic-template drafts leave all three
+// of these null/undefined.
+export interface DocumentIdentification {
+  object_id: string
+  title: string
+  object_type: string
+  module: string
+  project: string
+  version: string
+  status: string
+  generated_on: string
+}
+
+export interface ReviewSignoffRow {
+  role: string
+  name: string
+  status: string
+  date: string
+}
+
+export interface ValidationRow {
+  point: string
+  how_satisfied: string
+  section: string
+  pass: boolean
 }
 
 export type QualityTier = 'pass' | 'pass_with_condition' | 'not_advisable'
@@ -143,4 +172,7 @@ export interface FsdDraftOut {
   quality_score: QualityScore
   approvals: ApprovalState
   note: string
+  document_identification: DocumentIdentification | null
+  review_signoff: ReviewSignoffRow[] | null
+  validation_table: ValidationRow[] | null
 }

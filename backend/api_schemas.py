@@ -144,3 +144,9 @@ class FsdDraftOut(BaseModel):
     quality_score: QualityScore
     approvals: ApprovalState
     note: str
+    # Only populated for the Enhancement template -- Document Identification,
+    # Review & Sign-off, and the mandatory Validation Point table. None for
+    # every other object type, which still uses the generic nine-section FSD.
+    document_identification: Optional[dict] = None
+    review_signoff: Optional[list[dict]] = None
+    validation_table: Optional[list[dict]] = None

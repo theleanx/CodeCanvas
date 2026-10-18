@@ -34,6 +34,7 @@ from backend.api_schemas import (
 )
 from backend.auth import get_current_user
 from backend.db import get_db
+from backend.fsd_enhancement_meta import build_document_identification, build_review_signoff, build_validation_table
 from backend.models_db import FsdDraft, Project, TrackedObject, User
 
 logger = logging.getLogger("codecanvas")
@@ -81,8 +82,8 @@ def _object_out(db: Session, obj: TrackedObject) -> ObjectOut:
     )
 
 
-def _draft_out(draft: FsdDraft) -> FsdDraftOut:
-    return FsdDraftOut(
+def _draft_out(db: Session, draft: FsdDraft) -> FsdDraftOut:
+    out = FsdDraftOut(
         id=draft.id,
         object_id=draft.object_id,
         version=draft.version,
@@ -103,6 +104,23 @@ def _draft_out(draft: FsdDraft) -> FsdDraftOut:
             solution_architect_approved_at=draft.solution_architect_approved_at,
         ),
     )
+
+    # Document Identification / Review & Sign-off / the Validation table are
+    # only part of the Enhancement template -- computed here (not drafted by
+    # the model) from data that already exists, so they're always accurate.
+    obj = db.get(TrackedObject, draft.object_id)
+    if obj and obj.type == "Enhancement":
+        project = db.get(Project, obj.project_id)
+        draft_dict = out.model_dump()
+        out.document_identification = build_document_identification(
+            {"id": obj.id, "name": obj.name, "type": obj.type, "module": obj.module},
+            {"name": project.name if project else "—"},
+            draft_dict,
+        )
+        out.review_signoff = build_review_signoff(draft_dict)
+        out.validation_table = build_validation_table(draft.sections_json)
+
+    return out
 
 
 def _get_project_or_404(db: Session, project_id: str) -> Project:
@@ -210,12 +228,12 @@ def get_latest_fsd_draft(object_id: str, db: Session = Depends(get_db)):
     )
     if not draft:
         raise HTTPException(status_code=404, detail="No FSD draft has been generated for this object yet.")
-    return _draft_out(draft)
+    return _draft_out(db, draft)
 
 
 @router.get("/fsd-drafts/{draft_id}", response_model=FsdDraftOut)
 def get_fsd_draft(draft_id: str, db: Session = Depends(get_db)):
-    return _draft_out(_get_draft_or_404(db, draft_id))
+    return _draft_out(db, _get_draft_or_404(db, draft_id))
 
 
 @router.post("/objects/{object_id}/fsd-drafts", response_model=FsdDraftOut, status_code=201)
@@ -228,7 +246,7 @@ def generate_fsd_draft(object_id: str, payload: FsdGenerateRequest, db: Session 
     logger.info("fsd_generate start request_id=%s object_id=%s version=%s", request_id, object_id, next_version)
     started = time.monotonic()
     try:
-        agent_draft = run_fsd_creation(payload.sources)
+        agent_draft = run_fsd_creation(payload.sources, obj.type)
     except Exception as exc:
         logger.exception("fsd_generate failed request_id=%s", request_id)
         raise HTTPException(status_code=502, detail=f"Agent pipeline failed: {exc}") from exc
@@ -268,7 +286,7 @@ def generate_fsd_draft(object_id: str, payload: FsdGenerateRequest, db: Session 
         ) from exc
     db.refresh(draft)
     logger.info("fsd_generate done request_id=%s duration_ms=%s version=%s", request_id, duration_ms, next_version)
-    return _draft_out(draft)
+    return _draft_out(db, draft)
 
 
 @router.patch("/fsd-drafts/{draft_id}/approval", response_model=FsdDraftOut)
@@ -318,4 +336,4 @@ def set_approval(
 
     db.commit()
     db.refresh(draft)
-    return _draft_out(draft)
+    return _draft_out(db, draft)

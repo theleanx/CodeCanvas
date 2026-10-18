@@ -109,6 +109,27 @@ export default function FsdReview() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [objectId])
 
+  // Adding context to a flagged section doesn't patch that section alone --
+  // the agent drafts the whole FSD holistically from one fact ledger, so
+  // there's no per-section dependency graph to walk. Instead, the typed
+  // context becomes a new source document and the full draft is
+  // regenerated against the enriched ledger as a new version. That's what
+  // correctly "cascades": any other section whose grounding touches the
+  // same fact gets re-drafted too, not just the one the user clicked.
+  const regenerateWithContext = useCallback(
+    (sectionKey: string, sectionTitle: string, contextText: string) => {
+      if (run.phase !== 'done') return
+      const newSource: SourceDocumentIn = {
+        source_id: `clarification_${sectionKey}_${Date.now()}`,
+        label: `Added context — ${sectionTitle}`,
+        doc_type: 'Clarification',
+        text: contextText,
+      }
+      runGenerate([...run.draft.sources, newSource], `Added context for "${sectionTitle}"`)
+    },
+    [run, runGenerate],
+  )
+
   async function viewVersion(draftId: string) {
     setRun({ phase: 'loading' })
     try {
@@ -237,7 +258,12 @@ export default function FsdReview() {
           <div className="flex flex-wrap items-start gap-6">
             <div className="flex min-w-0 flex-[2_1_580px] flex-col gap-5 rounded-2xl border border-card-border bg-white p-9">
               {run.draft.sections.map((s, i) => (
-                <SectionBlock key={s.key} index={i + 1} section={s} />
+                <SectionBlock
+                  key={s.key}
+                  index={i + 1}
+                  section={s}
+                  onAddContext={(text) => regenerateWithContext(s.key, s.title, text)}
+                />
               ))}
             </div>
 
@@ -400,7 +426,18 @@ function QualityScoreCard({
   )
 }
 
-function SectionBlock({ index, section }: { index: number; section: FSDSection }) {
+function SectionBlock({
+  index,
+  section,
+  onAddContext,
+}: {
+  index: number
+  section: FSDSection
+  onAddContext: (text: string) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const [text, setText] = useState('')
+
   if (section.status === 'grounded') {
     return (
       <div>
@@ -417,6 +454,14 @@ function SectionBlock({ index, section }: { index: number; section: FSDSection }
     ? { border: 'border-l-red', bg: 'bg-red-soft', badgeBg: 'bg-red-soft', badgeText: 'text-red-text', text: 'text-red-text' }
     : { border: 'border-l-amber-dark', bg: 'bg-amber-soft-2', badgeBg: 'bg-amber-soft', badgeText: 'text-amber', text: 'text-amber-text' }
 
+  function submit() {
+    const trimmed = text.trim()
+    if (!trimmed) return
+    onAddContext(trimmed)
+    setOpen(false)
+    setText('')
+  }
+
   return (
     <div className={`rounded-r-lg border-l-[3px] ${tone.border} ${tone.bg} px-4.5 py-3.5`}>
       <div className="mb-1.5 flex items-center justify-between">
@@ -430,6 +475,58 @@ function SectionBlock({ index, section }: { index: number; section: FSDSection }
       <div className={`text-[13.5px] leading-relaxed ${tone.text}`}>
         {isConflict ? section.conflict_detail : section.needs_input_detail}
       </div>
+
+      {!open && (
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          className={`mt-2.5 rounded-md border px-3 py-1.5 text-[12px] font-bold ${
+            isConflict ? 'border-red-border bg-white text-red-text' : 'border-amber-border bg-white text-amber-text'
+          }`}
+        >
+          + Add context
+        </button>
+      )}
+
+      {open && (
+        <div className="mt-3 flex flex-col gap-2 border-t border-dashed border-divider pt-3">
+          <textarea
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            autoFocus
+            placeholder={
+              isConflict
+                ? 'Resolve the conflict — which input is correct, or what should override it?'
+                : 'Add the missing detail this section needs...'
+            }
+            className="min-h-[80px] w-full resize-y rounded-lg border border-input-border bg-white p-2.5 text-[13px]"
+          />
+          <div className="text-[11.5px] text-faint">
+            This becomes a new source and regenerates the full draft as a new version — any other section grounded in
+            the same facts gets re-drafted too, not just this one.
+          </div>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={submit}
+              disabled={!text.trim()}
+              className="rounded-md bg-accent px-3.5 py-1.5 text-[12.5px] font-bold text-white disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              Regenerate with this context
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setOpen(false)
+                setText('')
+              }}
+              className="rounded-md border border-input-border bg-white px-3.5 py-1.5 text-[12.5px] font-semibold text-slate-pill-text"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

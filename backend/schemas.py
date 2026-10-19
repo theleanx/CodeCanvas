@@ -120,6 +120,28 @@ class FSDSection(BaseModel):
         "wireframe when the object has a user-facing surface). Never model-generated pixels -- "
         "always rendered deterministically server-side from structured, model-supplied content.",
     )
+    # Three structured tables, each populated on exactly one Enhancement
+    # section key, rendered as literal tables (not prose) in the exported
+    # document and the review UI -- the Mandatory Quality Bar's "every table
+    # must be fully populated" and "Logic / Field Mapping" / "Test Scripts"
+    # rules need an actual table, not a paragraph that merely describes one.
+    field_mapping: list[dict] = Field(
+        default_factory=list,
+        description='Only on "functional_design_logic": one row per field named in Requirements -- '
+        '[{"field": str, "source": str, "target": str, "rule_type": "Direct Copy"|"Conditional"|"Derived", '
+        '"rule_detail": str}]. Must cover every field; an empty or partial table is worse than none.',
+    )
+    error_rows: list[dict] = Field(
+        default_factory=list,
+        description='Only on "error_handling": the structured form of the same content -- '
+        '[{"failure_point": str, "detection": str, "handling_rule": str, "user_notification": str, '
+        '"remediation": str}].',
+    )
+    test_rows: list[dict] = Field(
+        default_factory=list,
+        description='Only on "test_scenarios": the structured form of the same content -- '
+        '[{"test_id": str, "scenario": str, "steps": str, "expected_result": str}].',
+    )
 
 
 class QualityScore(BaseModel):

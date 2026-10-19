@@ -734,6 +734,9 @@ function DocumentIdentificationBlock({ info }: { info: DocumentIdentification })
     ['Version', info.version],
     ['Status', info.status],
     ['Generated', info.generated_on],
+    ['Author', info.author],
+    ['SAP Release', info.sap_release],
+    ['Transport Path', info.transport_path],
   ]
   return (
     <div className="rounded-xl border border-card-border bg-app-bg/50 p-4.5">
@@ -832,6 +835,84 @@ function SectionImages({ images }: { images: Record<string, string> }) {
   )
 }
 
+// The three structured tables a section can carry (see FieldMappingRow /
+// ErrorHandlingRow / TestScriptRow in lib/types.ts) -- rendered as a real
+// table rather than left as prose, matching what the exported document
+// shows. Keyed by section key so SectionBlock can look up the right shape.
+const SECTION_TABLE_CONFIG: Record<
+  string,
+  { field: 'field_mapping' | 'error_rows' | 'test_rows'; heading: string; columns: [string, string][] }
+> = {
+  functional_design_logic: {
+    field: 'field_mapping',
+    heading: 'Field Mapping',
+    columns: [
+      ['field', 'Field'],
+      ['source', 'Source'],
+      ['target', 'Target'],
+      ['rule_type', 'Rule Type'],
+      ['rule_detail', 'Rule Detail'],
+    ],
+  },
+  error_handling: {
+    field: 'error_rows',
+    heading: 'Error Handling Table',
+    columns: [
+      ['failure_point', 'Failure Point'],
+      ['detection', 'Detection'],
+      ['handling_rule', 'Handling Rule'],
+      ['user_notification', 'User Notification'],
+      ['remediation', 'Remediation'],
+    ],
+  },
+  test_scenarios: {
+    field: 'test_rows',
+    heading: 'Test Script',
+    columns: [
+      ['test_id', 'Test ID'],
+      ['scenario', 'Scenario'],
+      ['steps', 'Steps'],
+      ['expected_result', 'Expected Result'],
+    ],
+  },
+}
+
+function SectionTable({ section }: { section: FSDSection }) {
+  const config = SECTION_TABLE_CONFIG[section.key]
+  if (!config) return null
+  const rows = (section[config.field] ?? []) as unknown as Record<string, string>[]
+  if (rows.length === 0) return null
+  return (
+    <div className="mt-3 overflow-x-auto rounded-lg border border-card-border bg-white">
+      <div className="border-b border-card-border px-3.5 py-2 text-[12.5px] font-semibold text-ink">
+        {config.heading}
+      </div>
+      <table className="w-full min-w-[560px] border-collapse text-[12px]">
+        <thead>
+          <tr className="border-b border-divider text-left text-[10.5px] font-semibold uppercase tracking-wide text-muted">
+            {config.columns.map(([key, label]) => (
+              <th key={key} className="px-3.5 py-1.5">
+                {label}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row, i) => (
+            <tr key={i} className="border-b border-divider last:border-0 align-top">
+              {config.columns.map(([key]) => (
+                <td key={key} className="px-3.5 py-2 text-[#333d4d]">
+                  {row[key]}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
 function SectionBlock({
   index,
   section,
@@ -855,6 +936,7 @@ function SectionBlock({
           {index}. {section.title}
         </div>
         <div className="text-[13.5px] leading-relaxed text-[#333d4d]">{section.content}</div>
+        <SectionTable section={section} />
         <SectionImages images={section.images} />
       </div>
     )
@@ -872,6 +954,7 @@ function SectionBlock({
           </span>
         </div>
         <div className="text-[13.5px] leading-relaxed text-[#333d4d]">{section.content}</div>
+        <SectionTable section={section} />
         <SectionImages images={section.images} />
         <div className="mt-2.5 rounded-md bg-white/70 px-3 py-2 text-[12px] text-accent">
           Based on general SAP knowledge, not your project's own documents — {section.ai_inferred_note || 'confirm or correct this before relying on it.'}

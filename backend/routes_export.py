@@ -58,6 +58,7 @@ def _load_context(db: Session, draft_id: str) -> tuple[dict, dict, dict]:
         "note": draft.note,
         "intake_validation_status": draft.intake_validation_status or "pending",
         "intake_validation": draft.intake_validation_json,
+        "generated_by": draft.generated_by,
         "approvals": {
             "module_lead_approved": draft.module_lead_approved,
             "module_lead_approved_by": draft.module_lead_approved_by,
@@ -68,7 +69,7 @@ def _load_context(db: Session, draft_id: str) -> tuple[dict, dict, dict]:
         },
     }
     obj_dict = {"id": obj.id, "name": obj.name, "type": obj.type, "module": obj.module, "object_code": obj.object_code}
-    project_dict = {"id": project.id, "name": project.name}
+    project_dict = {"id": project.id, "name": project.name, "system_description": project.system_description}
 
     # Same gating as routes_projects.py's _draft_out: these three blocks are
     # keyed to the in-built Enhancement template's own fixed section names,
@@ -77,7 +78,7 @@ def _load_context(db: Session, draft_id: str) -> tuple[dict, dict, dict]:
     if obj.type == "Enhancement" and draft.template_source != "client_specific":
         draft_dict["document_identification"] = build_document_identification(obj_dict, project_dict, draft_dict)
         draft_dict["review_signoff"] = build_review_signoff(draft_dict)
-        draft_dict["validation_table"] = build_validation_table(draft.sections_json)
+        draft_dict["validation_table"] = build_validation_table(draft.sections_json, draft_dict["document_identification"])
 
     return draft_dict, obj_dict, project_dict
 

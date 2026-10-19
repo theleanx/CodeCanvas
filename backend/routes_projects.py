@@ -175,6 +175,7 @@ def _draft_out(db: Session, draft: FsdDraft) -> FsdDraftOut:
         token_usage_total=token_usage_total,
         template_source=draft.template_source,
         template_name=draft.template_name,
+        generated_by=draft.generated_by,
         approvals=ApprovalState(
             module_lead_approved=draft.module_lead_approved,
             module_lead_approved_by=draft.module_lead_approved_by,
@@ -199,11 +200,11 @@ def _draft_out(db: Session, draft: FsdDraft) -> FsdDraftOut:
         draft_dict = out.model_dump()
         out.document_identification = build_document_identification(
             {"id": obj.id, "name": obj.name, "type": obj.type, "module": obj.module, "object_code": obj.object_code},
-            {"name": project.name if project else "—"},
+            {"name": project.name if project else "—", "system_description": project.system_description if project else ""},
             draft_dict,
         )
         out.review_signoff = build_review_signoff(draft_dict)
-        out.validation_table = build_validation_table(draft.sections_json)
+        out.validation_table = build_validation_table(draft.sections_json, out.document_identification)
 
     return out
 
@@ -431,7 +432,9 @@ def _resolve_fsd_template(db: Session, project_id: str, object_type_key: str) ->
 
 
 @router.post("/objects/{object_id}/fsd-drafts", response_model=FsdDraftOut, status_code=201)
-def generate_fsd_draft(object_id: str, payload: FsdGenerateRequest, db: Session = Depends(get_db)):
+def generate_fsd_draft(
+    object_id: str, payload: FsdGenerateRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+):
     obj = _get_object_or_404(db, object_id)
 
     next_version = (db.query(func.max(FsdDraft.version)).filter(FsdDraft.object_id == object_id).scalar() or 0) + 1
@@ -481,6 +484,7 @@ def generate_fsd_draft(object_id: str, payload: FsdGenerateRequest, db: Session 
         },
         template_source="client_specific" if template else "in_built",
         template_name=template_name,
+        generated_by=user.name,
     )
     db.add(draft)
 

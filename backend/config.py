@@ -38,7 +38,13 @@ MAX_TOKENS_DRAFT = 8192
 # with 3+ mandatory scenarios, a test script with one row per field/branch/
 # error-row) -- a complex object can now legitimately need 20+ test rows
 # alone.
-MAX_TOKENS_ENHANCEMENT_DRAFT = 20000
+# Raised a third time for the Mandatory Quality Bar: error_handling and
+# test_scenarios now carry their detail as structured error_rows/test_rows
+# (JSON objects, which cost more tokens per fact than the equivalent prose
+# line did) instead of duplicating it in both prose and structured form, and
+# functional_design_logic gained a brand-new field_mapping table (one row
+# per requirement field) with no prose-side reduction to offset it.
+MAX_TOKENS_ENHANCEMENT_DRAFT = 24000
 
 # The Intake Validation assessment (backend/agents/intake_validation.py)
 # grades a finished FSD against ~18-20 checklist items plus ~8 quality

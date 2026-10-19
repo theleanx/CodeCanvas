@@ -19,6 +19,29 @@ export interface LedgerEntry {
   topic_hint: string | null
 }
 
+export interface FieldMappingRow {
+  field: string
+  source: string
+  target: string
+  rule_type: 'Direct Copy' | 'Conditional' | 'Derived' | string
+  rule_detail: string
+}
+
+export interface ErrorHandlingRow {
+  failure_point: string
+  detection: string
+  handling_rule: string
+  user_notification: string
+  remediation: string
+}
+
+export interface TestScriptRow {
+  test_id: string
+  scenario: string
+  steps: string
+  expected_result: string
+}
+
 export interface FSDSection {
   key: string
   title: string
@@ -29,6 +52,12 @@ export interface FSDSection {
   conflict_detail: string | null
   ai_inferred_note: string | null
   images: Record<string, string>
+  // Structured tables -- only ever populated on one section key each (see
+  // backend/schemas.py FSDSection), rendered as literal tables rather than
+  // left as prose.
+  field_mapping: FieldMappingRow[]
+  error_rows: ErrorHandlingRow[]
+  test_rows: TestScriptRow[]
 }
 
 // Only present on drafts for "Enhancement" objects -- the custom
@@ -38,11 +67,15 @@ export interface DocumentIdentification {
   object_id: string
   title: string
   object_type: string
+  development_type: string
   module: string
   project: string
   version: string
   status: string
   generated_on: string
+  author: string
+  sap_release: string
+  transport_path: string
 }
 
 export interface ReviewSignoffRow {
@@ -320,4 +353,5 @@ export interface FsdDraftOut {
   token_usage_total: TokenUsageOut | null
   template_source: 'in_built' | 'client_specific' | null
   template_name: string | null
+  generated_by: string | null
 }

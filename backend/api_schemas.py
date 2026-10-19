@@ -212,6 +212,9 @@ class FsdDraftOut(BaseModel):
     # section keys specifically, not any arbitrary client template.
     template_source: Optional[Literal["in_built", "client_specific"]] = None
     template_name: Optional[str] = None
+    # The requesting user's display name at generation time -- the "author"
+    # field in the Enhancement template's Document Identification block.
+    generated_by: Optional[str] = None
 
 
 # --- Project Brain: object-type/module/complexity config, document templates -

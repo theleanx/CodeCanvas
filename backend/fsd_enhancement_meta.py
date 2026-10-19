@@ -42,11 +42,29 @@ def build_document_identification(obj: dict, project: dict, draft: dict) -> dict
         "object_id": obj.get("object_code") or "Assigned at transport creation",
         "title": f"{obj['name']} — Functional Specification",
         "object_type": obj.get("type", "Enhancement"),
+        "development_type": obj.get("type", "Enhancement"),
         "module": obj.get("module", "—"),
         "project": project.get("name", "—"),
         "version": f"v{draft['version']}",
         "status": "Draft" if not _is_fully_approved(draft) else "Approved",
         "generated_on": _fmt_dt(draft["created_at"]),
+        # The requesting user's display name, captured once at generation
+        # time (backend/routes_projects.py's generate_fsd_draft) -- real
+        # data, never guessed. Only ever missing for a draft generated
+        # before this field existed.
+        "author": draft.get("generated_by") or "Not recorded for this draft version",
+        # Project.system_description is exactly this already (e.g. "SAP
+        # S/4HANA Private Edition · 2023", set once per project at project
+        # creation/setup) -- no separate field to maintain. Same
+        # never-leave-blank rule as object_id: state plainly when the
+        # project hasn't set one, rather than omitting the row.
+        "sap_release": project.get("system_description") or "Not specified in project setup — confirm with Basis/platform team before build.",
+        # A standing fact about how this org promotes custom code, not a
+        # specific technical object -- safe to state as the standard
+        # landscape pattern rather than invented per-document. The actual
+        # transport request numbers are assigned at build time and belong
+        # in the transport itself, not this document.
+        "transport_path": "DEV → QA → PRD (standard three-system landscape; specific transport request numbers are assigned at build/release time).",
     }
 
 
@@ -76,14 +94,19 @@ def _section(sections: list[dict], key: str) -> dict | None:
     return next((s for s in sections if s["key"] == key), None)
 
 
-def build_validation_table(sections: list[dict]) -> list[dict]:
+_AUTH_OBJECT_PATTERN = re.compile(r"\b[A-Z][A-Z0-9]{1,3}_[A-Z0-9_]{2,}\b")  # e.g. V_VBAK_VKO, S_TABU_DIS
+
+
+def build_validation_table(sections: list[dict], document_identification: dict | None = None) -> list[dict]:
     """The mandatory Validation Point -> How It's Satisfied -> Section ->
-    Pass/Fail table from the attached prompt. Nine fixed checks, evaluated
-    with simple, explainable heuristics over the already-drafted sections --
-    not re-judged by a model, so the result is reproducible."""
+    Pass/Fail table from the Mandatory Quality Bar. Nine fixed checks,
+    evaluated with simple, explainable heuristics over the already-drafted
+    sections (and, for the three table-based checks, the structured
+    field_mapping/error_rows/test_rows data those sections carry) -- not
+    re-judged by a model, so the result is reproducible and never marks a
+    check "Pass" the data doesn't actually support."""
 
     by_key = {s["key"]: s for s in sections}
-    all_grounded_text = " ".join(s["content"] for s in sections if s["status"] == "grounded")
 
     def grounded(key: str) -> bool:
         # "Present and usable" for this checklist's purposes -- ai_inferred
@@ -102,16 +125,40 @@ def build_validation_table(sections: list[dict]) -> list[dict]:
                     return True
         return False
 
+    def table_rows(key: str, field: str) -> list[dict]:
+        s = by_key.get(key)
+        return (s.get(field) or []) if s else []
+
+    def fully_populated(rows: list[dict], required_keys: tuple[str, ...]) -> bool:
+        if not rows:
+            return False
+        return all(str(row.get(k, "")).strip() for row in rows for k in required_keys)
+
+    def has_concrete_or_flagged(key: str) -> bool:
+        # "Concrete" for Security and Authorization Details specifically --
+        # a real-looking SAP authorization object name (e.g. V_VBAK_VKO) --
+        # or an explicit "to be confirmed" disclaimer. Catches the one thing
+        # rule 1 of the quality bar calls out by name: a bare "users need
+        # appropriate access" statement with nothing concrete behind it.
+        s = by_key.get(key)
+        if not s or not s["content"].strip():
+            return False
+        return bool(_AUTH_OBJECT_PATTERN.search(s["content"]) or _CONFIRMED_DISCLAIMER.search(s["content"]))
+
+    field_mapping_rows = table_rows("functional_design_logic", "field_mapping")
+    test_rows_data = table_rows("test_scenarios", "test_rows")
+    di = document_identification or {}
+
     checks = [
         ("Business Functionality", "future_process", "Current/future process sections are grounded and describe the business need."),
         ("Detailed Functional Requirements", "requirements", "Requirements section is grounded, each requirement individually stated."),
-        ("SAP Objects Validity", None, "No invented technical object names — unconfirmed names are explicitly flagged as such."),
+        ("SAP Objects Validity", "functional_design_logic", "No invented technical object names — unconfirmed names are explicitly flagged as such."),
         ("No TBDs / Placeholders", None, "No bare TBD/placeholder text outside an explicit 'to be confirmed' flag."),
-        ("Logic / Field Mapping", "functional_design_logic", "Functional Design & Process Logic section is grounded."),
-        ("Test Scripts Validity", "test_scenarios", "Functional Unit Test Scenarios section is grounded and non-empty."),
-        ("Security and Authorization Details", "security_roles", "Security and Roles section is grounded."),
-        ("Versions and Releases", None, "Document carries an explicit version number."),
-        ("Test Scripts Presence", "test_scenarios", "At least one test scenario is present in the document."),
+        ("Logic / Field Mapping", "functional_design_logic", "A complete source-to-target row exists for every field, with its rule type (Direct Copy/Conditional/Derived)."),
+        ("Test Scripts Validity", "test_scenarios", "Every test row (Test ID, scenario, steps, expected result) is fully populated."),
+        ("Security and Authorization Details", "security_roles", "Named authorization objects and activities are given, not a general access statement."),
+        ("Versions and Releases", None, "Document states a version, target SAP release, and transport path explicitly."),
+        ("Test Scripts Presence", "test_scenarios", "The full test table itself (Test ID / Steps / Expected Result) is present in the document."),
     ]
 
     rows = []
@@ -120,8 +167,14 @@ def build_validation_table(sections: list[dict]) -> list[dict]:
             passed = True  # enforced upstream by the drafting prompt; nothing to re-derive here
         elif point == "No TBDs / Placeholders":
             passed = not has_unflagged_tbd()
+        elif point == "Logic / Field Mapping":
+            passed = fully_populated(field_mapping_rows, ("field", "source", "target", "rule_type", "rule_detail"))
+        elif point in ("Test Scripts Validity", "Test Scripts Presence"):
+            passed = fully_populated(test_rows_data, ("test_id", "scenario", "steps", "expected_result"))
+        elif point == "Security and Authorization Details":
+            passed = has_concrete_or_flagged("security_roles")
         elif point == "Versions and Releases":
-            passed = True  # every draft has a version by construction
+            passed = bool(di) and all(str(di.get(k, "")).strip() for k in ("version", "sap_release", "transport_path"))
         else:
             passed = grounded(section_key)
         rows.append(

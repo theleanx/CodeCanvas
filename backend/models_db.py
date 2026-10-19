@@ -288,6 +288,12 @@ class FsdDraft(Base):
     request_id: Mapped[str] = mapped_column(String(64), default="")
     duration_ms: Mapped[int] = mapped_column(Integer, default=0)
 
+    # The real, logged-in requester's display name at generation time -- the
+    # "author" the Enhancement template's Document Identification needs.
+    # Captured once, here, rather than re-derived later: whoever approves or
+    # exports this draft afterwards shouldn't change who it says authored it.
+    generated_by: Mapped[str | None] = mapped_column(String(200), nullable=True)
+
     # Who actually approved, not a fixed assignee -- any logged-in user
     # with the matching role (enforced in routes_projects.py) can approve;
     # these record who really did, replacing the earlier hardcoded names.

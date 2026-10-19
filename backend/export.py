@@ -33,6 +33,21 @@ from reportlab.platypus import (
 
 STATUS_LABEL = {"grounded": "Grounded", "needs_input": "Needs Input", "conflict": "Conflict Flagged"}
 
+# The three structured tables a section can carry (backend/schemas.py
+# FSDSection.field_mapping/error_rows/test_rows) -- rendered as literal
+# tables in every export format rather than left as prose, per the
+# Mandatory Quality Bar's "every table must be fully populated, not just
+# referenced" rule. Keyed by the section key that carries each one.
+_SECTION_TABLES = {
+    "functional_design_logic": ("field_mapping", "Field Mapping", ["Field", "Source", "Target", "Rule Type", "Rule Detail"], ("field", "source", "target", "rule_type", "rule_detail")),
+    "error_handling": ("error_rows", "Error Handling Table", ["Failure Point", "Detection", "Handling Rule", "User Notification", "Remediation"], ("failure_point", "detection", "handling_rule", "user_notification", "remediation")),
+    "test_scenarios": ("test_rows", "Test Script", ["Test ID", "Scenario", "Steps", "Expected Result"], ("test_id", "scenario", "steps", "expected_result")),
+}
+
+
+def _md_cell(text: Any) -> str:
+    return str(text).replace("|", "\\|").replace("\n", " ")
+
 
 def _title(obj: dict, project: dict) -> str:
     return f"{obj['name']} — Functional Specification Document"
@@ -73,6 +88,10 @@ def build_markdown(draft: dict, obj: dict, project: dict) -> str:
             "|---|---|---|---|---|---|",
             f"| {di['object_id']} | {di['object_type']} | {di['module']} | {di['project']} | {di['version']} | {di['status']} |",
             "",
+            "| SAP Release | Author | Transport Path |",
+            "|---|---|---|",
+            f"| {_md_cell(di.get('sap_release', '—'))} | {_md_cell(di.get('author', '—'))} | {_md_cell(di.get('transport_path', '—'))} |",
+            "",
         ]
 
     if draft.get("validation_table"):
@@ -111,6 +130,18 @@ def build_markdown(draft: dict, obj: dict, project: dict) -> str:
             detail = s.get("conflict_detail") if s["status"] == "conflict" else s.get("needs_input_detail")
             lines.append("")
             lines.append(f"> **{STATUS_LABEL[s['status']]}** — {detail or 'No detail recorded.'}")
+        table_spec = _SECTION_TABLES.get(s["key"])
+        if table_spec:
+            field, heading, headers, keys = table_spec
+            table_rows = s.get(field) or []
+            if table_rows:
+                lines.append("")
+                lines.append(f"**{heading}**")
+                lines.append("")
+                lines.append("| " + " | ".join(headers) + " |")
+                lines.append("|" + "---|" * len(headers))
+                for row in table_rows:
+                    lines.append("| " + " | ".join(_md_cell(row.get(k, "")) for k in keys) + " |")
         for label, b64 in (s.get("images") or {}).items():
             lines.append("")
             lines.append(f"**{label}**")
@@ -167,6 +198,14 @@ def build_docx(draft: dict, obj: dict, project: dict) -> bytes:
         for i, v in enumerate([di["object_id"], di["object_type"], di["module"], di["project"], di["version"], di["status"]]):
             row[i].text = str(v)
 
+        rel_table = doc.add_table(rows=1, cols=3)
+        rel_table.style = "Light Grid Accent 1"
+        for i, h in enumerate(["SAP Release", "Author", "Transport Path"]):
+            rel_table.rows[0].cells[i].text = h
+        rel_row = rel_table.add_row().cells
+        for i, v in enumerate([di.get("sap_release", "—"), di.get("author", "—"), di.get("transport_path", "—")]):
+            rel_row[i].text = str(v)
+
     if draft.get("validation_table"):
         doc.add_heading("Validation", level=1)
         v_table = doc.add_table(rows=1, cols=4)
@@ -217,6 +256,20 @@ def build_docx(draft: dict, obj: dict, project: dict) -> bytes:
             run = p.add_run(f"{STATUS_LABEL[s['status']]} — {detail or 'No detail recorded.'}")
             run.bold = True
             run.font.color.rgb = STATUS_COLOR.get(s["status"], RGBColor(0, 0, 0))
+        table_spec = _SECTION_TABLES.get(s["key"])
+        if table_spec:
+            field, heading, headers, keys = table_spec
+            table_rows = s.get(field) or []
+            if table_rows:
+                doc.add_heading(heading, level=2)
+                tbl = doc.add_table(rows=1, cols=len(headers))
+                tbl.style = "Light Grid Accent 1"
+                for ci, h in enumerate(headers):
+                    tbl.rows[0].cells[ci].text = h
+                for row in table_rows:
+                    cells = tbl.add_row().cells
+                    for ci, k in enumerate(keys):
+                        cells[ci].text = str(row.get(k, ""))
         for label, b64 in (s.get("images") or {}).items():
             caption = doc.add_paragraph()
             caption.add_run(label).bold = True
@@ -263,6 +316,7 @@ def build_pdf(draft: dict, obj: dict, project: dict) -> bytes:
     meta = ParagraphStyle("FSDMeta", parent=styles["BodyText"], textColor=colors.HexColor("#555555"), spaceAfter=14)
     flagged_needs_input = ParagraphStyle("FSDFlagYellow", parent=body, textColor=colors.HexColor("#8a5a00"))
     flagged_conflict = ParagraphStyle("FSDFlagRed", parent=body, textColor=colors.HexColor("#991b1b"))
+    cell_style = ParagraphStyle("FSDCell", parent=styles["BodyText"], fontSize=7.5, leading=9.5)
 
     story: list[Any] = [Paragraph(_title(obj, project), h0)]
 
@@ -320,6 +374,29 @@ def build_pdf(draft: dict, obj: dict, project: dict) -> bytes:
         )
         story.append(id_table)
 
+        rel_rows = [
+            ["SAP Release", "Author", "Transport Path"],
+            [
+                Paragraph(str(di.get("sap_release", "—")), body),
+                Paragraph(str(di.get("author", "—")), body),
+                Paragraph(str(di.get("transport_path", "—")), body),
+            ],
+        ]
+        rel_table = Table(rel_rows, colWidths=[2.0 * inch, 1.5 * inch, 2.4 * inch])
+        rel_table.setStyle(
+            TableStyle(
+                [
+                    ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f1f3f7")),
+                    ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                    ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#cfd4dc")),
+                    ("FONTSIZE", (0, 0), (-1, -1), 8),
+                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ]
+            )
+        )
+        story.append(Spacer(1, 4))
+        story.append(rel_table)
+
     if draft.get("validation_table"):
         story.append(Paragraph("Validation", h1))
         v_rows = [["Validation Point", "How It's Satisfied", "Section", "Pass/Fail"]]
@@ -367,6 +444,30 @@ def build_pdf(draft: dict, obj: dict, project: dict) -> bytes:
             detail = s.get("conflict_detail") if s["status"] == "conflict" else s.get("needs_input_detail")
             style = flagged_conflict if s["status"] == "conflict" else flagged_needs_input
             story.append(Paragraph(f"<b>{STATUS_LABEL[s['status']]}</b> — {detail or 'No detail recorded.'}", style))
+        table_spec = _SECTION_TABLES.get(s["key"])
+        if table_spec:
+            field, heading, headers, keys = table_spec
+            table_rows_data = s.get(field) or []
+            if table_rows_data:
+                story.append(Paragraph(heading, ParagraphStyle("TableH2", parent=styles["Heading2"], spaceBefore=6, spaceAfter=4)))
+                pdf_rows = [headers] + [
+                    [Paragraph(str(row.get(k, "")), cell_style) for k in keys] for row in table_rows_data
+                ]
+                col_width = (6.5 * inch) / len(headers)
+                struct_table = Table(pdf_rows, colWidths=[col_width] * len(headers), repeatRows=1)
+                struct_table.setStyle(
+                    TableStyle(
+                        [
+                            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f1f3f7")),
+                            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                            ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#cfd4dc")),
+                            ("FONTSIZE", (0, 0), (-1, -1), 7.5),
+                            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                        ]
+                    )
+                )
+                story.append(struct_table)
+                story.append(Spacer(1, 8))
         for label, b64 in (s.get("images") or {}).items():
             story.append(Paragraph(f"<b>{label}</b>", body))
             img_buf = io.BytesIO(base64.b64decode(b64))

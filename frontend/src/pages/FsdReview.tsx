@@ -60,8 +60,6 @@ export default function FsdReview() {
   const [metaError, setMetaError] = useState<string | null>(null)
   const [run, setRun] = useState<RunState>({ phase: 'loading' })
   const [versions, setVersions] = useState<FsdDraftSummary[]>([])
-  const [yellowOpen, setYellowOpen] = useState(false)
-  const [redOpen, setRedOpen] = useState(false)
   const [approvalError, setApprovalError] = useState<string | null>(null)
   const [contextQueue, setContextQueue] = useState<Record<string, { title: string; text: string }>>({})
 
@@ -291,14 +289,6 @@ export default function FsdReview() {
 
       {run.phase === 'done' && (
         <>
-          <QualityScoreCard
-            draft={run.draft}
-            yellowOpen={yellowOpen}
-            redOpen={redOpen}
-            onToggleYellow={() => setYellowOpen((v) => !v)}
-            onToggleRed={() => setRedOpen((v) => !v)}
-          />
-
           <IntakeValidationCard draft={run.draft} onUpdated={(updated) => setRun({ phase: 'done', draft: updated })} />
 
           {Object.keys(contextQueue).length > 0 && (
@@ -397,113 +387,6 @@ function tierLabel(tier: string) {
   return 'Below threshold'
 }
 
-function QualityScoreCard({
-  draft,
-  yellowOpen,
-  redOpen,
-  onToggleYellow,
-  onToggleRed,
-}: {
-  draft: FsdDraftOut
-  yellowOpen: boolean
-  redOpen: boolean
-  onToggleYellow: () => void
-  onToggleRed: () => void
-}) {
-  const q = draft.quality_score
-  const scoreColor = q.tier === 'pass' ? 'text-green' : q.tier === 'pass_with_condition' ? 'text-amber' : 'text-red'
-  return (
-    <div className="mb-6 flex flex-col gap-4 rounded-2xl border border-card-border bg-white p-[26px_30px]">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <div className="font-heading text-[17px] font-extrabold">FSD Intake Quality Score</div>
-          <div className="mt-0.5 text-[12.5px] text-muted">
-            How fully this draft is grounded in the provided inputs, plus review-readiness checks.
-          </div>
-        </div>
-        <div className="text-right">
-          <div className={`font-heading text-[26px] font-extrabold leading-none ${scoreColor}`}>
-            {q.overall_pct.toFixed(0)}%
-          </div>
-          <span
-            className={`mt-1 inline-block whitespace-nowrap rounded-full px-2.5 py-1 text-[11px] font-bold ${
-              q.tier === 'pass'
-                ? 'bg-green-soft text-green'
-                : q.tier === 'pass_with_condition'
-                  ? 'bg-amber-soft text-amber'
-                  : 'bg-red-soft text-red-text'
-            }`}
-          >
-            {tierLabel(q.tier)}
-          </span>
-        </div>
-      </div>
-
-      <div
-        role="img"
-        aria-label={`Quality breakdown: ${q.green_pct}% green, ${q.yellow_pct}% yellow, ${q.red_pct}% red`}
-        className="flex h-3.5 w-full overflow-hidden rounded-full"
-      >
-        <div className="h-full bg-green" style={{ width: `${q.green_pct}%` }} />
-        <div className="h-full bg-amber-dark" style={{ width: `${q.yellow_pct}%` }} />
-        <div className="h-full bg-red" style={{ width: `${q.red_pct}%` }} />
-      </div>
-
-      <div className="flex flex-wrap items-center gap-4.5 text-[12.5px]">
-        <span className="flex items-center gap-1.5 font-semibold text-green">
-          <span className="h-[9px] w-[9px] rounded-full bg-green" /> {q.green_pct.toFixed(0)}% grounded
-        </span>
-        {q.yellow_items.length > 0 && (
-          <button
-            type="button"
-            onClick={onToggleYellow}
-            className="flex items-center gap-1.5 bg-transparent p-0 text-[12.5px] font-semibold text-amber-text underline"
-          >
-            <span className="h-[9px] w-[9px] rounded-full bg-amber-dark" /> {q.yellow_pct.toFixed(0)}% should fix —
-            click to view
-          </button>
-        )}
-        {q.red_items.length > 0 && (
-          <button
-            type="button"
-            onClick={onToggleRed}
-            className="flex items-center gap-1.5 bg-transparent p-0 text-[12.5px] font-semibold text-red-text underline"
-          >
-            <span className="h-[9px] w-[9px] rounded-full bg-red" /> {q.red_pct.toFixed(0)}% must fix — click to view
-          </button>
-        )}
-      </div>
-
-      {yellowOpen && q.yellow_items.length > 0 && (
-        <div className="flex flex-col gap-2 rounded-lg border border-amber-border bg-amber-soft-2 px-4 py-3.5">
-          <div className="text-[12.5px] font-bold text-amber-text">Should-fix items</div>
-          <ul className="m-0 flex flex-col gap-1.5 pl-[18px] text-[12.5px] leading-relaxed text-amber-text">
-            {q.yellow_items.map((item) => (
-              <li key={item}>{item}</li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      {redOpen && q.red_items.length > 0 && (
-        <div className="flex flex-col gap-2 rounded-lg border border-red-border bg-red-soft px-4 py-3.5">
-          <div className="text-[12.5px] font-bold text-red-text">Must-fix items</div>
-          <ul className="m-0 flex flex-col gap-1.5 pl-[18px] text-[12.5px] leading-relaxed text-red-text">
-            {q.red_items.map((item) => (
-              <li key={item}>{item}</li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      <div className="border-t border-divider pt-2.5 text-[11.5px] text-faint">
-        Above 90% — pass, single approver. 80–90% — pass with condition. Below 80% — not advisable to approve; if
-        approved anyway, requires one Module Lead and one Solution Architect.
-      </div>
-    </div>
-  )
-}
-
 const VERDICT_LABEL: Record<string, string> = { ready: 'Ready', needs_correction: 'Needs Correction', not_ready: 'Not Ready' }
 
 function verdictClasses(verdict: string) {
@@ -537,6 +420,65 @@ function radarBarColor(score: number) {
   if (score >= 75) return 'bg-green'
   if (score >= 50) return 'bg-amber-dark'
   return 'bg-red'
+}
+
+// Compact, single-line stand-in for what used to be its own full card
+// ("FSD Intake Quality Score") -- the grounding % is mechanically computed
+// (no LLM call, always available) and distinct from the Intake Validation
+// audit below it, but showing two giant colored score panels back to back
+// read as two competing opinions rather than two different measurements.
+// This folds grounding into Intake Validation's header as one quiet stat,
+// expandable to the same must-fix/should-fix detail it always had.
+function GroundingStat({ draft }: { draft: FsdDraftOut }) {
+  const q = draft.quality_score
+  const [open, setOpen] = useState(false)
+  const hasIssues = q.yellow_items.length > 0 || q.red_items.length > 0
+
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex flex-wrap items-center gap-2 text-[12.5px]">
+        <span className="h-2 w-2 shrink-0 rounded-full bg-green" />
+        <span className="text-muted">
+          <span className="font-semibold text-ink">{q.green_pct.toFixed(0)}% grounded</span> in the provided inputs
+          ({tierLabel(q.tier)})
+        </span>
+        {hasIssues && (
+          <button
+            type="button"
+            onClick={() => setOpen((v) => !v)}
+            className="bg-transparent p-0 text-[12.5px] font-semibold text-accent underline"
+          >
+            {open ? 'Hide' : 'Show'} grounding issues ({q.yellow_items.length + q.red_items.length})
+          </button>
+        )}
+      </div>
+
+      {open && (
+        <div className="flex flex-col gap-2">
+          {q.red_items.length > 0 && (
+            <div className="flex flex-col gap-2 rounded-lg border border-red-border bg-red-soft px-4 py-3.5">
+              <div className="text-[12.5px] font-bold text-red-text">Must fix ({q.red_pct.toFixed(0)}%)</div>
+              <ul className="m-0 flex flex-col gap-1.5 pl-[18px] text-[12.5px] leading-relaxed text-red-text">
+                {q.red_items.map((item) => (
+                  <li key={item}>{item}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {q.yellow_items.length > 0 && (
+            <div className="flex flex-col gap-2 rounded-lg border border-amber-border bg-amber-soft-2 px-4 py-3.5">
+              <div className="text-[12.5px] font-bold text-amber-text">Should fix ({q.yellow_pct.toFixed(0)}%)</div>
+              <ul className="m-0 flex flex-col gap-1.5 pl-[18px] text-[12.5px] leading-relaxed text-amber-text">
+                {q.yellow_items.map((item) => (
+                  <li key={item}>{item}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
 }
 
 function IntakeValidationCard({ draft, onUpdated }: { draft: FsdDraftOut; onUpdated: (draft: FsdDraftOut) => void }) {
@@ -603,12 +545,17 @@ function IntakeValidationCard({ draft, onUpdated }: { draft: FsdDraftOut; onUpda
   // explicit "Run Intake Validation" click here, or on generate/regenerate.
   if (draft.intake_validation_status === 'pending') {
     return (
-      <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-card-border bg-white p-[22px_30px]">
-        <div className="text-[13px] text-muted">
-          This draft hasn't been through Intake Validation yet (it was generated before this check existed, or it
-          hasn't been run manually).
+      <div className="mb-6 flex flex-col gap-3 rounded-2xl border border-card-border bg-white p-[22px_30px]">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="text-[13px] text-muted">
+            This draft hasn't been through Intake Validation yet (it was generated before this check existed, or it
+            hasn't been run manually).
+          </div>
+          {actions}
         </div>
-        {actions}
+        <div className="border-t border-divider pt-3">
+          <GroundingStat draft={draft} />
+        </div>
       </div>
     )
   }
@@ -626,6 +573,9 @@ function IntakeValidationCard({ draft, onUpdated }: { draft: FsdDraftOut; onUpda
           {actions}
         </div>
         {error && <div className="text-[12px] text-red-text">{error}</div>}
+        <div className="border-t border-red-border pt-3">
+          <GroundingStat draft={draft} />
+        </div>
       </div>
     )
   }
@@ -649,7 +599,7 @@ function IntakeValidationCard({ draft, onUpdated }: { draft: FsdDraftOut; onUpda
           <div className="font-heading text-[17px] font-extrabold">Intake Validation</div>
           <div className="mt-0.5 text-[12.5px] text-muted">
             SAP delivery-readiness audit — structure, specificity, and testability, graded against a fixed
-            checklist. Distinct from the grounding-focused score above.
+            checklist.
           </div>
         </div>
         <div className="flex flex-wrap items-start gap-4">
@@ -663,6 +613,10 @@ function IntakeValidationCard({ draft, onUpdated }: { draft: FsdDraftOut; onUpda
           </div>
           {actions}
         </div>
+      </div>
+
+      <div className="border-t border-divider pt-3.5">
+        <GroundingStat draft={draft} />
       </div>
 
       {error && <div className="rounded-md border border-red-border bg-red-soft px-3 py-2 text-[12px] text-red-text">{error}</div>}

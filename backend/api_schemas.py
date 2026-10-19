@@ -315,3 +315,21 @@ class DocumentTemplateSave(BaseModel):
     diagram_section_key: Optional[str] = None
     allow_ai_inferred: bool = False
     raw_text: Optional[str] = None
+
+
+# --- Project Repository (backend/routes_project_documents.py) --------------
+# General engagement reference documents (SOW, BPML, PDD, FDD, Big Rocks,
+# project-specific Skill files, Other) -- metadata only; the file's bytes
+# never travel through this shape, only through the dedicated download
+# endpoint, so a document list response stays small regardless of file size.
+
+class ProjectDocumentOut(BaseModel):
+    id: str
+    project_id: str
+    category: str
+    filename: str
+    content_type: str
+    size_bytes: int
+    notes: str
+    uploaded_by: Optional[str] = None
+    uploaded_at: datetime

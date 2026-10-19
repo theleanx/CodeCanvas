@@ -16,6 +16,7 @@ const PROJECT_NAV = (projectId: string) => [
   { label: 'Overview', to: `/projects/${projectId}/overview` },
   { label: 'Custom Objects', to: `/projects/${projectId}` },
   { label: 'Project Brain', to: `/projects/${projectId}/brain` },
+  { label: 'Repository', to: `/projects/${projectId}/repository` },
 ]
 
 interface AddedDoc extends SourceDocumentIn {

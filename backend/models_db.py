@@ -15,7 +15,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Integer, LargeBinary, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from backend.db import Base
@@ -70,6 +70,15 @@ PIPELINE_STAGES = ("Not Started", "In Progress", "Blocked", "On Hold", "Complete
 # "Rename only" decision recorded in the Project Brain commit.
 OBJECT_TYPE_INTERNAL_KEYS = ("Report", "Interface", "Conversion", "Enhancement", "Form", "Workflow")
 DOCUMENT_TYPES = ("FSD", "TSD", "Code Review", "Test Script")
+
+# Project Repository categories (backend/routes_project_documents.py) -- the
+# fixed set of project-level reference documents a team keeps alongside the
+# object pipeline: engagement-level artifacts (SOW, BPML, PDD, FDD, Big
+# Rocks), project-specific Skill files (consulting playbooks/know-how for
+# this engagement, distinct from the app's own built-in skills), and an
+# Other bucket for anything that doesn't fit those. Order here is display
+# order in the UI's category filter/grouping.
+PROJECT_DOCUMENT_CATEGORIES = ("SOW", "BPML", "PDD", "FDD", "Big Rocks", "Skills", "Other")
 
 
 class TrackedObject(Base):
@@ -231,6 +240,33 @@ class ProjectDocumentTemplate(Base):
 
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, onupdate=_now)
     updated_by: Mapped[str | None] = mapped_column(String(200), nullable=True)
+
+
+class ProjectDocument(Base):
+    """One uploaded file in a project's Repository (SOW, BPML, PDD, FDD, Big
+    Rocks, project-specific Skill files, or Other) -- general reference
+    material for the engagement, not consumed by any generation agent.
+    Deliberately distinct from ProjectDocumentTemplate above: that one
+    stores only extracted text to drive FSD section generation; this one
+    stores the original file bytes so the exact uploaded document (a signed
+    SOW PDF, a BPML Visio export, a roadmap deck) can be downloaded back
+    unchanged. No text extraction, no parsing -- a file cabinet, not an
+    input to the pipeline."""
+
+    __tablename__ = "project_documents"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), index=True)
+    category: Mapped[str] = mapped_column(String(20))  # one of PROJECT_DOCUMENT_CATEGORIES
+
+    filename: Mapped[str] = mapped_column(String(300))
+    content_type: Mapped[str] = mapped_column(String(150), default="application/octet-stream")
+    size_bytes: Mapped[int] = mapped_column(Integer, default=0)
+    content: Mapped[bytes] = mapped_column(LargeBinary)
+
+    notes: Mapped[str] = mapped_column(String(500), default="")
+    uploaded_by: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    uploaded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
 
 class FsdDraft(Base):

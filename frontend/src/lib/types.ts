@@ -246,6 +246,25 @@ export interface DocumentTemplateSave {
   raw_text?: string | null
 }
 
+// --- Project Repository ----------------------------------------------------
+
+export const PROJECT_DOCUMENT_CATEGORIES = ['SOW', 'BPML', 'PDD', 'FDD', 'Big Rocks', 'Skills', 'Other'] as const
+export type ProjectDocumentCategory = (typeof PROJECT_DOCUMENT_CATEGORIES)[number]
+
+// Metadata only -- the file's bytes never travel through this shape, only
+// through the dedicated download endpoint (lib/api.ts downloadProjectDocument).
+export interface ProjectDocument {
+  id: string
+  project_id: string
+  category: string
+  filename: string
+  content_type: string
+  size_bytes: number
+  notes: string
+  uploaded_by: string | null
+  uploaded_at: string
+}
+
 export interface ApprovalState {
   module_lead_approved: boolean
   module_lead_approved_by: string | null

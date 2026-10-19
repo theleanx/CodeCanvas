@@ -4,6 +4,7 @@ import Dashboard from './pages/Dashboard'
 import NewProject from './pages/NewProject'
 import ObjectDashboard from './pages/ObjectDashboard'
 import ProjectBrain from './pages/ProjectBrain'
+import ProjectRepository from './pages/ProjectRepository'
 import ProjectWorkspace from './pages/ProjectWorkspace'
 import FsdIntake from './pages/FsdIntake'
 import FsdReview from './pages/FsdReview'
@@ -17,6 +18,7 @@ const PROJECT_NAV = (projectId: string) => [
   { label: 'Overview', to: `/projects/${projectId}/overview` },
   { label: 'Custom Objects', to: `/projects/${projectId}` },
   { label: 'Project Brain', to: `/projects/${projectId}/brain` },
+  { label: 'Repository', to: `/projects/${projectId}/repository` },
 ]
 
 function ProjectScopedPlaceholder({ title, note }: { title: string; note?: string }) {
@@ -64,6 +66,7 @@ export default function App() {
                 }
               />
               <Route path="/projects/:projectId/brain" element={<ProjectBrain />} />
+              <Route path="/projects/:projectId/repository" element={<ProjectRepository />} />
               <Route path="/projects/:projectId/objects/:objectId" element={<ObjectDashboard />} />
               <Route path="/projects/:projectId/objects/:objectId/fsd/intake" element={<FsdIntake />} />
               <Route path="/projects/:projectId/objects/:objectId/fsd/review" element={<FsdReview />} />

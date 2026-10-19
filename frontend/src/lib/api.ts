@@ -13,6 +13,7 @@ import type {
   PipelineStage,
   Project,
   ProjectCreate,
+  ProjectDocument,
   SourceDocumentIn,
   TokenResponse,
   TrackedObject,
@@ -369,4 +370,59 @@ export function fetchDocumentLink(url: string) {
     method: 'POST',
     body: JSON.stringify({ url }),
   })
+}
+
+// --- Project Repository ---
+
+export function listProjectDocuments(projectId: string, category?: string) {
+  const qs = category ? `?category=${encodeURIComponent(category)}` : ''
+  return request<ProjectDocument[]>(`/api/projects/${projectId}/documents${qs}`)
+}
+
+export function uploadProjectDocument(projectId: string, file: File, category: string, notes = '') {
+  const form = new FormData()
+  form.append('file', file)
+  const qs = `?category=${encodeURIComponent(category)}&notes=${encodeURIComponent(notes)}`
+  return request<ProjectDocument>(`/api/projects/${projectId}/documents${qs}`, {
+    method: 'POST',
+    body: form,
+  })
+}
+
+export function deleteProjectDocument(documentId: string) {
+  return request<void>(`/api/project-documents/${documentId}`, { method: 'DELETE' })
+}
+
+// Same blob-download pattern as downloadFsdExport above.
+export async function downloadProjectDocument(documentId: string, fallbackFilename: string): Promise<void> {
+  const token = getToken()
+  const headers: Record<string, string> = {}
+  if (token) headers.Authorization = `Bearer ${token}`
+
+  const res = await fetch(`${API_BASE}/api/project-documents/${documentId}/download`, { headers })
+  if (!res.ok) {
+    if (res.status === 401) onUnauthorized?.()
+    let detail = `Download failed (${res.status})`
+    try {
+      const body = await res.json()
+      if (body?.detail) detail = typeof body.detail === 'string' ? body.detail : JSON.stringify(body.detail)
+    } catch {
+      // not JSON -- keep the generic message
+    }
+    throw new ApiError(res.status, detail)
+  }
+
+  const disposition = res.headers.get('Content-Disposition') || ''
+  const match = disposition.match(/filename="([^"]+)"/)
+  const filename = match ? match[1] : fallbackFilename
+
+  const blob = await res.blob()
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  URL.revokeObjectURL(url)
 }

@@ -12,6 +12,7 @@ export default function Login() {
 
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -49,14 +50,24 @@ export default function Login() {
           </label>
           <label className="flex flex-col gap-1.5">
             <span className="text-[13px] font-semibold text-slate-pill-text">Password</span>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="••••••••"
-              className="w-full rounded-md border border-input-border px-3 py-2 text-sm"
-              required
-            />
+            <div className="relative">
+              <input
+                type={showPassword ? 'text' : 'password'}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="••••••••"
+                className="w-full rounded-md border border-input-border px-3 py-2 pr-16 text-sm"
+                required
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword((v) => !v)}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs font-semibold text-muted"
+                tabIndex={-1}
+              >
+                {showPassword ? 'Hide' : 'Show'}
+              </button>
+            </div>
           </label>
 
           {error && <div className="text-sm text-red-text">{error}</div>}
@@ -69,13 +80,6 @@ export default function Login() {
             {submitting ? 'Signing in…' : 'Sign in'}
           </button>
         </form>
-
-        <div className="mt-6 rounded-lg bg-app-bg px-3.5 py-3 text-[11.5px] leading-relaxed text-faint">
-          Demo accounts (password <code className="rounded bg-white px-1 py-0.5">codecanvas123</code> for all):
-          <br />
-          admin@codecanvas.demo · priya.nair@codecanvas.demo (Module Lead) · ankit.buffalo@gmail.com (Solution
-          Architect)
-        </div>
       </div>
     </div>
   )

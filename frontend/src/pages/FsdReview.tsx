@@ -381,12 +381,6 @@ function ErrorCard({ message, onRetry }: { message: string; onRetry: () => void 
   )
 }
 
-function tierLabel(tier: string) {
-  if (tier === 'pass') return 'Pass'
-  if (tier === 'pass_with_condition') return 'Pass with condition'
-  return 'Below threshold'
-}
-
 const VERDICT_LABEL: Record<string, string> = { ready: 'Ready', needs_correction: 'Needs Correction', not_ready: 'Not Ready' }
 
 function verdictClasses(verdict: string) {
@@ -422,66 +416,8 @@ function radarBarColor(score: number) {
   return 'bg-red'
 }
 
-// Compact, single-line stand-in for what used to be its own full card
-// ("FSD Intake Quality Score") -- the grounding % is mechanically computed
-// (no LLM call, always available) and distinct from the Intake Validation
-// audit below it, but showing two giant colored score panels back to back
-// read as two competing opinions rather than two different measurements.
-// This folds grounding into Intake Validation's header as one quiet stat,
-// expandable to the same must-fix/should-fix detail it always had.
-function GroundingStat({ draft }: { draft: FsdDraftOut }) {
-  const q = draft.quality_score
-  const [open, setOpen] = useState(false)
-  const hasIssues = q.yellow_items.length > 0 || q.red_items.length > 0
-
-  return (
-    <div className="flex flex-col gap-2">
-      <div className="flex flex-wrap items-center gap-2 text-[12.5px]">
-        <span className="h-2 w-2 shrink-0 rounded-full bg-green" />
-        <span className="text-muted">
-          <span className="font-semibold text-ink">{q.green_pct.toFixed(0)}% grounded</span> in the provided inputs
-          ({tierLabel(q.tier)})
-        </span>
-        {hasIssues && (
-          <button
-            type="button"
-            onClick={() => setOpen((v) => !v)}
-            className="bg-transparent p-0 text-[12.5px] font-semibold text-accent underline"
-          >
-            {open ? 'Hide' : 'Show'} grounding issues ({q.yellow_items.length + q.red_items.length})
-          </button>
-        )}
-      </div>
-
-      {open && (
-        <div className="flex flex-col gap-2">
-          {q.red_items.length > 0 && (
-            <div className="flex flex-col gap-2 rounded-lg border border-red-border bg-red-soft px-4 py-3.5">
-              <div className="text-[12.5px] font-bold text-red-text">Must fix ({q.red_pct.toFixed(0)}%)</div>
-              <ul className="m-0 flex flex-col gap-1.5 pl-[18px] text-[12.5px] leading-relaxed text-red-text">
-                {q.red_items.map((item) => (
-                  <li key={item}>{item}</li>
-                ))}
-              </ul>
-            </div>
-          )}
-          {q.yellow_items.length > 0 && (
-            <div className="flex flex-col gap-2 rounded-lg border border-amber-border bg-amber-soft-2 px-4 py-3.5">
-              <div className="text-[12.5px] font-bold text-amber-text">Should fix ({q.yellow_pct.toFixed(0)}%)</div>
-              <ul className="m-0 flex flex-col gap-1.5 pl-[18px] text-[12.5px] leading-relaxed text-amber-text">
-                {q.yellow_items.map((item) => (
-                  <li key={item}>{item}</li>
-                ))}
-              </ul>
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  )
-}
-
 function IntakeValidationCard({ draft, onUpdated }: { draft: FsdDraftOut; onUpdated: (draft: FsdDraftOut) => void }) {
+  const [groundingOpen, setGroundingOpen] = useState(false)
   const [checksOpen, setChecksOpen] = useState(false)
   const [correctionsOpen, setCorrectionsOpen] = useState(true)
   const [checklistOpen, setChecklistOpen] = useState(false)
@@ -545,17 +481,12 @@ function IntakeValidationCard({ draft, onUpdated }: { draft: FsdDraftOut; onUpda
   // explicit "Run Intake Validation" click here, or on generate/regenerate.
   if (draft.intake_validation_status === 'pending') {
     return (
-      <div className="mb-6 flex flex-col gap-3 rounded-2xl border border-card-border bg-white p-[22px_30px]">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="text-[13px] text-muted">
-            This draft hasn't been through Intake Validation yet (it was generated before this check existed, or it
-            hasn't been run manually).
-          </div>
-          {actions}
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-card-border bg-white p-[22px_30px]">
+        <div className="text-[13px] text-muted">
+          This draft hasn't been through Intake Validation yet (it was generated before this check existed, or it
+          hasn't been run manually).
         </div>
-        <div className="border-t border-divider pt-3">
-          <GroundingStat draft={draft} />
-        </div>
+        {actions}
       </div>
     )
   }
@@ -573,14 +504,13 @@ function IntakeValidationCard({ draft, onUpdated }: { draft: FsdDraftOut; onUpda
           {actions}
         </div>
         {error && <div className="text-[12px] text-red-text">{error}</div>}
-        <div className="border-t border-red-border pt-3">
-          <GroundingStat draft={draft} />
-        </div>
       </div>
     )
   }
 
   const iv = draft.intake_validation
+  const q = draft.quality_score
+  const groundingIssueCount = q.red_items.length + q.yellow_items.length
   const verdict = verdictClasses(iv.verdict)
   const flaggedChecks = iv.quality_checks.filter((c) => c.status !== 'pass').length
   const checklistPass = iv.checklist.filter((c) => c.status === 'pass').length
@@ -615,10 +545,6 @@ function IntakeValidationCard({ draft, onUpdated }: { draft: FsdDraftOut; onUpda
         </div>
       </div>
 
-      <div className="border-t border-divider pt-3.5">
-        <GroundingStat draft={draft} />
-      </div>
-
       {error && <div className="rounded-md border border-red-border bg-red-soft px-3 py-2 text-[12px] text-red-text">{error}</div>}
 
       <div className="text-[13.5px] leading-relaxed text-[#333d4d]">{iv.assessment}</div>
@@ -636,6 +562,51 @@ function IntakeValidationCard({ draft, onUpdated }: { draft: FsdDraftOut; onUpda
           </div>
         ))}
       </div>
+
+      {groundingIssueCount > 0 && (
+        <div className="border-t border-divider pt-4">
+          <button
+            type="button"
+            onClick={() => setGroundingOpen((v) => !v)}
+            className="flex w-full items-center justify-between bg-transparent p-0 text-left"
+          >
+            <div className="font-heading text-[14px] font-bold">
+              Grounding Issues <span className="font-normal text-muted">({groundingIssueCount})</span>
+            </div>
+            <span className="text-[12px] font-semibold text-accent">{groundingOpen ? 'Hide' : 'Show'}</span>
+          </button>
+          {groundingOpen && (
+            <div className="mt-3 flex flex-col gap-2">
+              <div className="text-[11.5px] text-faint">
+                Content the draft couldn't trace back to your source inputs — mechanically checked, separate from
+                the SAP-readiness checks below.
+              </div>
+              {q.red_items.map((item) => (
+                <div
+                  key={item}
+                  className="flex items-start gap-2.5 rounded-lg border border-red-border bg-red-soft px-3.5 py-2.5 text-[12.5px]"
+                >
+                  <span className="mt-0.5 shrink-0 rounded-full bg-red px-2 py-0.5 text-[10px] font-bold text-white">
+                    MUST FIX
+                  </span>
+                  <span className="text-red-text">{item}</span>
+                </div>
+              ))}
+              {q.yellow_items.map((item) => (
+                <div
+                  key={item}
+                  className="flex items-start gap-2.5 rounded-lg border border-amber-border bg-amber-soft-2 px-3.5 py-2.5 text-[12.5px]"
+                >
+                  <span className="mt-0.5 shrink-0 rounded-full bg-amber-dark px-2 py-0.5 text-[10px] font-bold text-white">
+                    SHOULD FIX
+                  </span>
+                  <span className="text-amber-text">{item}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="border-t border-divider pt-4">
         <button
@@ -1115,7 +1086,9 @@ function ApprovalCard({
     <div className="flex flex-col gap-2.5 rounded-2xl border border-card-border bg-white p-5">
       <div className="font-heading text-[15px] font-bold">Approval</div>
       <div className="-mt-0.5 text-[12.5px] text-muted">
-        {requiresDual ? 'Score is below 80% — two approvers are required.' : 'Score meets the single-approver threshold.'}
+        {requiresDual
+          ? `${quality_score.green_pct.toFixed(0)}% grounded in the source inputs, below the 80% threshold — two approvers are required.`
+          : `${quality_score.green_pct.toFixed(0)}% grounded in the source inputs, meeting the single-approver threshold.`}
       </div>
 
       {error && <div className="rounded-md border border-red-border bg-red-soft px-2.5 py-2 text-[12px] text-red-text">{error}</div>}

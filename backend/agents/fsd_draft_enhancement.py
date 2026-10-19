@@ -74,34 +74,106 @@ source_id, in conflict_detail, and a short neutral summary in content.
 6. If a section IS grounded (the normal case here), list every entry_id it \
 draws on in grounded_in. Write factual, plain, FSD-register prose -- no \
 marketing language, no hedging filler.
-7. For the "requirements" section: write each discrete requirement as its \
-own short numbered line (a req ID, the requirement, and its priority if \
-stated). For "error_handling", "dependencies_config", and \
-"test_scenarios": write each row as its own numbered line with the fields \
-inline (e.g. for test_scenarios: scenario, steps, expected result) -- \
-plain numbered lines, not markdown tables.
-8. The "process_flow" section needs two extra things beyond normal content: \
-   a) "flow_steps": an ordered list of the business-process steps this \
-      object participates in, each {"actor": short role/system name or \
-      null, "label": one sentence describing that step}. 3-8 steps, in \
-      the order they actually happen.
-   b) "wireframe": if this object has ANY user-facing surface (a screen, a \
-      tab, a report layout, a field the user interacts with), \
-      {"screen_title": short title, "fields": ordered list of plain field \
-      labels shown on it}. If there is truly no user-facing surface \
-      (e.g. a pure background interface), set "wireframe" to null.
-   Content for this section should be a short prose description of the \
-   flow itself; flow_steps/wireframe carry the structured version that \
-   gets rendered as diagrams, so don't duplicate the full step list in content.
-9. Section order and keys are fixed -- output exactly these twelve keys in \
+7. Section order and keys are fixed -- output exactly these twelve keys in \
 this order: requirements, solution_options, current_functionality, \
 future_process, functional_design_logic, process_flow, \
 performance_criteria, error_handling, dependencies_config, \
 assumptions_constraints, security_roles, test_scenarios.
-10. "assumptions_constraints" itself is never needs_input -- if no \
+8. "assumptions_constraints" itself is never needs_input -- if no \
 assumptions were actually needed elsewhere, its content should say exactly \
 that ("No assumptions were required; every section above is grounded in \
 provided input.") and its status is grounded.
+
+Section-specific content requirements. Each section below is graded \
+against a fixed delivery-readiness checklist, so follow its shape exactly \
+-- these are on top of rules 1-8 above, not instead of them:
+
+- "requirements": the business ask in plain language -- what's being added, \
+to which object(s), and why. Write each discrete requirement as its own \
+short numbered line (a req ID, the requirement, and its priority if \
+stated). Name every field involved EXPLICITLY, by its plain business label \
+-- never leave a field count or a field's purpose only implied by a code \
+snippet or table reference; if there are 6 fields, list what all 6 are and \
+what each one is for.
+- "solution_options": state the approach actually selected (e.g. customer \
+exit, BAdI, append structure, whichever applies) AND at least one \
+alternative that was considered, with a concrete reason it was or wasn't \
+chosen for each. A single option with no comparison is incomplete.
+- "current_functionality": what exists today (or in the legacy system) \
+that this replaces or extends -- the starting point, stated plainly.
+- "future_process": the target-state process after this is built, in \
+enough procedural detail that a reader could compare it step-for-step \
+against "current_functionality" and see exactly what changes.
+- "functional_design_logic": the business rule driving the enhancement \
+(what condition shows/hides a field, what triggers the logic, etc.) tied \
+EXPLICITLY to its technical implementation -- name the actual \
+enhancement/exit/BAdI, tables, and structures involved (per rule 3: real \
+names only, or an explicit "to be confirmed" placeholder, never invented). \
+Any configurable value the logic depends on (status codes, category/plant \
+lists, thresholds, field lists, currency limits, etc.) must be \
+parameterized, never hardcoded in the described logic -- say it should be \
+maintained in TVARVC, a BRF+ decision table, or a custom Z-customizing \
+table, name WHICH of the three fits this case, and give a one-clause \
+reason why that one over the other two (e.g. "a BRF+ decision table, since \
+the rule has multiple conditions that may need independent versioning by \
+business users, not a single flat variable").
+- "process_flow": the content itself is a short prose description; the \
+structured detail goes in flow_steps/wireframe below, which get rendered \
+as diagrams -- the rendered diagram is mandatory, not optional. \
+flow_steps MUST describe the BUSINESS process flow (who does what, in \
+what order -- actors are business roles, departments, or systems named \
+only as black boxes, e.g. "Sales Admin", "SAP System", "Customer") and \
+must never become a technical/system flow (no ABAP exit names, table \
+names, or code-level steps here -- that detail belongs in \
+functional_design_logic, not process_flow).
+  a) "flow_steps": an ordered list of the business-process steps this \
+     object participates in, each {"actor": short business role/dept/system \
+     name or null, "label": one sentence describing that step in business \
+     terms}. 3-8 steps, in the order they actually happen.
+  b) "wireframe": if this object has ANY user-facing surface (a screen, a \
+     tab, a selection/output layout, a field the user interacts with), \
+     {"screen_title": short title, "fields": ordered list of plain field \
+     labels shown on it}. If there is truly no user-facing surface (e.g. a \
+     pure background interface), set "wireframe" to null.
+- "performance_criteria": real, specific numbers (response time, data \
+volume, batch window, concurrent users -- whatever applies) grounded in \
+the ledger or a reasonable, explicitly-labeled assumption, OR, if \
+performance genuinely isn't a concern for this object, say "Not \
+Applicable" plus a one-line reason why (e.g. "Not Applicable -- a \
+low-volume, single-user configuration transaction with no batch or \
+reporting load"). Never leave generic template placeholder text like "TBD" \
+or "to be determined" with no reason attached.
+- "error_handling": write each row as its own numbered line, with these \
+five elements inline in order -- failure point, detection, handling rule, \
+user notification, remediation. Cover more than the one obvious failure \
+scenario: at minimum, also include a save/commit failure, a boundary or \
+blank/missing-value case, and what happens to already-processed data if \
+the triggering condition later reverses (e.g. a status flips back).
+- "dependencies_config": configuration or master data that must already \
+exist in the system for this enhancement to work (customizing entries, \
+master data records, number ranges, authorization setup elsewhere, etc.) \
+-- stated as prerequisites, not as part of this build's own scope.
+- "assumptions_constraints": every place a judgment call was needed to \
+resolve ambiguity in the requirement. State each one as a firm decision \
+made, never as a question thrown back to the reader (write "Assumed X" or \
+"Decision: X", never "Should it be X or Y?"), and end each line with \
+"[Needs reviewer sign-off]" so it's visibly flagged for confirmation \
+rather than silently treated as settled.
+- "security_roles": real, verified SAP authorization objects (e.g. the \
+actual object per rule 3, or an explicit "to be confirmed against the \
+system" placeholder) and the specific activities in scope for each \
+(create/change/display/execute, etc.). Never write a generic statement \
+like "users need appropriate access" with nothing concrete behind it -- if \
+the exact objects aren't known from the ledger, name what kind of access \
+is needed in business terms and flag the specific authorization object as \
+unconfirmed, rather than leaving the whole section vague.
+- "test_scenarios": a full test script. Write each test as its own \
+numbered line with four elements inline, in order -- Test ID (e.g. \
+TC-01), scenario, steps, expected result. Coverage must include, at \
+minimum: one test per field named in "requirements", one test per \
+business-rule branch described in "functional_design_logic" (each \
+condition/outcome pair), and one test per row in "error_handling" above. \
+A test suite covering only the happy path is incomplete.
 
 Output ONLY a JSON array of exactly twelve objects, no prose before or \
 after, no markdown fence. Each element:

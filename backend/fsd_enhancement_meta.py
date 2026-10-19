@@ -33,7 +33,13 @@ def _fmt_dt(value: Any) -> str:
 
 def build_document_identification(obj: dict, project: dict, draft: dict) -> dict:
     return {
-        "object_id": obj["id"][:8],
+        # The human-readable RICEFW-style Object ID (e.g. "PP_F001"), set at
+        # object-creation time -- see backend/project_brain.py's
+        # next_object_code. It's only ever missing for an object created
+        # before that scheme existed, and the rule from the FSD content spec
+        # applies here too: never leave it blank, say explicitly when it's
+        # assigned instead.
+        "object_id": obj.get("object_code") or "Assigned at transport creation",
         "title": f"{obj['name']} — Functional Specification",
         "object_type": obj.get("type", "Enhancement"),
         "module": obj.get("module", "—"),

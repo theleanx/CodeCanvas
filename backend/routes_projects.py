@@ -198,7 +198,7 @@ def _draft_out(db: Session, draft: FsdDraft) -> FsdDraftOut:
         project = db.get(Project, obj.project_id)
         draft_dict = out.model_dump()
         out.document_identification = build_document_identification(
-            {"id": obj.id, "name": obj.name, "type": obj.type, "module": obj.module},
+            {"id": obj.id, "name": obj.name, "type": obj.type, "module": obj.module, "object_code": obj.object_code},
             {"name": project.name if project else "—"},
             draft_dict,
         )

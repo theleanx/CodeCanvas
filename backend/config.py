@@ -33,7 +33,12 @@ MAX_TOKENS_DRAFT = 8192
 # which surfaced to the user as a cryptic "Unterminated string" JSON error
 # instead of a clear one. Doubled, with an explicit truncation check below
 # as a second line of defense if a draft is ever still big enough to hit it.
-MAX_TOKENS_ENHANCEMENT_DRAFT = 16000
+# Raised again after the content spec got considerably denser (every field
+# named explicitly in requirements, a full 5-column error-handling table
+# with 3+ mandatory scenarios, a test script with one row per field/branch/
+# error-row) -- a complex object can now legitimately need 20+ test rows
+# alone.
+MAX_TOKENS_ENHANCEMENT_DRAFT = 20000
 
 # The Intake Validation assessment (backend/agents/intake_validation.py)
 # grades a finished FSD against ~18-20 checklist items plus ~8 quality
